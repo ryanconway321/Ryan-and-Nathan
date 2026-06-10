@@ -36,7 +36,7 @@ const AW = 320, AH = 220, AD = 1100; // arena half-width, half-height, depth
 const FOCAL    = 480;
 const CAM_OFF  = 280;
 const PAD_W    = 55, PAD_H = 75;
-const BALL_R   = 11;
+const BALL_R   = 18;
 const PAD_SPD  = 5;
 const WIN_TO   = 7;
 const COLORS   = { p1:'#818cf8', p2:'#f472b6', ball:'#63caff', floor:'#0f172a', wall:'#1e293b' };
@@ -79,7 +79,7 @@ document.getElementById('mode-btn').onclick = () => {
 
 // ── Serve ─────────────────────────────────────────────────────────────────────
 function serve() {
-  const spd = 9 + (scores[0]+scores[1]) * 0.3;
+  const spd = 5 + (scores[0]+scores[1]) * 0.2;
   const dir = lastScored === 1 ? -1 : 1;
   ball = {
     x: 0, y: 0, z: AD/2,
