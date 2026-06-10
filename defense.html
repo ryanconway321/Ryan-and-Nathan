@@ -784,23 +784,14 @@ function startFieldingPhase() {
   fieldPhase.resultTimer = 0;
   fieldPhase.diveAnim = 0;
   fieldPhase.diving = false;
-  showActionLabel('DO A CRUNCH TO CATCH! 🤿');
+  // AI decides: 70% catch, 30% miss
+  fieldPhase.aiWillCatch = Math.random() < 0.70;
+  fieldPhase.aiTriggered = false;
+  showActionLabel('');
 }
 
 function attemptCatch() {
-  if (fieldPhase.ballLanded || fieldPhase.caught || fieldPhase.missed || fieldPhase.diving) return;
-  fieldPhase.diving = true;
-  fieldPhase.diveAnim = 0;
-  // Check if timing is in catch window (ball near target)
-  const progress = fieldPhase.ballT;
-  if (progress > 0.65 && progress < 1.0) {
-    fieldPhase.caught = true;
-    state.outs++;
-    spawnParticles(fieldPhase.targetX, fieldPhase.targetY, '#00ffff', 60);
-    spawnParticles(fieldPhase.targetX, fieldPhase.targetY, '#ffdd00', 40);
-    updateScoreUI();
-  }
-  fieldPhase.resultTimer = 100;
+  // No longer called by player — AI only
 }
 
 function drawFieldingView(dt) {
@@ -866,30 +857,15 @@ function drawFieldingView(dt) {
   ctx.stroke();
   ctx.restore();
 
-  // Landing zone indicator
+  // Shadow on ground where ball will land
   if (!fieldPhase.caught && !fieldPhase.missed) {
-    const pulse = 0.5 + 0.5 * Math.sin(fieldPhase.timer * 0.15);
+    const alpha = 0.15 + 0.2 * fieldPhase.ballT;
     ctx.save();
-    ctx.globalAlpha = 0.3 + pulse * 0.4;
-    ctx.strokeStyle = '#ff4444';
-    ctx.lineWidth = 3;
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = '#ff4444';
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#000';
     ctx.beginPath();
-    ctx.arc(fieldPhase.targetX, fieldPhase.targetY, 40, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(fieldPhase.targetX, fieldPhase.targetY, 20, 0, Math.PI * 2);
-    ctx.stroke();
-    // crosshair
-    ctx.beginPath();
-    ctx.moveTo(fieldPhase.targetX - 45, fieldPhase.targetY);
-    ctx.lineTo(fieldPhase.targetX + 45, fieldPhase.targetY);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(fieldPhase.targetX, fieldPhase.targetY - 45);
-    ctx.lineTo(fieldPhase.targetX, fieldPhase.targetY + 45);
-    ctx.stroke();
+    ctx.ellipse(fieldPhase.targetX, fieldPhase.targetY, 22, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
@@ -905,6 +881,23 @@ function drawFieldingView(dt) {
     fieldPhase.ballX = bx;
     fieldPhase.ballY = by;
     addBallTrail(bx, by);
+
+    // AI triggers dive when ball is close
+    if (fieldPhase.ballT > 0.78 && !fieldPhase.aiTriggered && !fieldPhase.diving) {
+      fieldPhase.aiTriggered = true;
+      if (fieldPhase.aiWillCatch) {
+        // AI catches it
+        fieldPhase.diving = true;
+        fieldPhase.diveAnim = 0;
+        fieldPhase.caught = true;
+        state.outs++;
+        spawnParticles(fieldPhase.targetX, fieldPhase.targetY, '#00ffff', 60);
+        spawnParticles(fieldPhase.targetX, fieldPhase.targetY, '#ffdd00', 40);
+        updateScoreUI();
+        fieldPhase.resultTimer = 100;
+      }
+      // If not catching, just let the ball land
+    }
 
     if (fieldPhase.ballT >= 1 && !fieldPhase.caught) {
       fieldPhase.ballLanded = true;
@@ -942,34 +935,13 @@ function drawFieldingView(dt) {
     fieldPhase.diveAnim = Math.min(fieldPhase.diveAnim + 2, 40);
   }
 
-  // Catch timer bar
-  if (!fieldPhase.caught && !fieldPhase.missed && !fieldPhase.ballLanded) {
-    const barW = W * 0.4;
-    const barX = W / 2 - barW / 2;
-    const barY = H - 60;
-    const progress = fieldPhase.ballT;
+  // Show who the AI fielder is going for
+  if (!fieldPhase.caught && !fieldPhase.missed && !fieldPhase.ballLanded && !fieldPhase.diving) {
     ctx.save();
-    ctx.fillStyle = '#111';
-    ctx.fillRect(barX, barY, barW, 16);
-    const color = progress > 0.65 ? '#00ff88' : '#ffdd00';
-    ctx.fillStyle = color;
-    ctx.shadowBlur = 10;
-    ctx.shadowColor = color;
-    ctx.fillRect(barX, barY, barW * progress, 16);
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(barX, barY, barW, 16);
-    // Catch window indicator
-    ctx.fillStyle = '#00ff88';
-    ctx.globalAlpha = 0.4;
-    ctx.fillRect(barX + barW * 0.65, barY, barW * 0.35, 16);
-    ctx.restore();
-
-    ctx.save();
-    ctx.font = 'bold 14px Arial';
-    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 18px Arial';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.textAlign = 'center';
-    ctx.fillText('CATCH WINDOW →', W / 2, barY - 6);
+    ctx.fillText(fieldPhase.aiWillCatch ? '🧤 Fielder moving into position…' : '😬 Fielder misjudging the ball…', W / 2, H - 36);
     ctx.restore();
   }
 
@@ -981,7 +953,11 @@ function drawFieldingView(dt) {
     ctx.globalAlpha = alpha;
     ctx.font = 'bold 70px Arial Black';
     ctx.textAlign = 'center';
-    let txt = fieldPhase.caught ? 'DIVING CATCH!' : 'HIT SCORES!';
+    const catchMsgs = ['DIVING CATCH! 🧤', 'GOT IT! 🧤', 'WHAT A PLAY! 🧤'];
+    const missMsgs = ['DROPPED IT! 😬', 'HIT SCORES! 🏃', 'FUMBLED! 😱'];
+    let txt = fieldPhase.caught
+      ? catchMsgs[Math.floor(Math.random() * catchMsgs.length)]
+      : missMsgs[Math.floor(Math.random() * missMsgs.length)];
     let color = fieldPhase.caught ? '#00ffff' : '#ff4444';
     ctx.fillStyle = color;
     ctx.shadowBlur = 40;
