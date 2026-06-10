@@ -386,7 +386,7 @@ const state = {
   particles: [],
   crowdTexts: [],
   frameCount: 0,
-  pitchSpeed: 0.010,   // slower ball
+  pitchSpeed: 0.018,   // faster ball
   consecutiveHits: 0,
   inHitZone: false,
 };
@@ -1066,7 +1066,7 @@ function triggerSwing() {
   // Check if ball is in hit zone
   const ball = state.ball;
   if (ball) {
-    const hitWindow = ball.z < 22 && ball.z > -4; // much bigger window
+    const hitWindow = ball.z < 10 && ball.z > -2; // tight window
     if (hitWindow) {
       onHit(ball);
     } else {
@@ -1171,7 +1171,7 @@ function nextPitch() {
   state.windupTimer = 0;
   state.phase = 'winding';
   // Speed up slightly over time
-  state.pitchSpeed = 0.010 + (state.hits * 0.0002); // stays slow
+  state.pitchSpeed = 0.018 + (state.hits * 0.001); // gets faster as you score
 }
 
 function launchPitch() {
@@ -1345,7 +1345,7 @@ function render() {
     drawBall(state.ball);
 
     // Hit zone indicator — flash green ring when ball is in range
-    state.inHitZone = state.ball.z < 22 && state.ball.z > -4;
+    state.inHitZone = state.ball.z < 10 && state.ball.z > -2;
     if (state.inHitZone) {
       const pulse = 0.5 + 0.5 * Math.sin(state.frameCount * 0.4);
       ctx.save();
