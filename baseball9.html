@@ -554,7 +554,7 @@ function drawLineup(){
   const step=G.lineupStep;
   const tname=step===0?'Team R':'Team N';
   shadowTxt(`${tname} — Pick 3 Players`,W/2,46,24,'#fff');
-  txt(`(${G.lineupSel[step].length}/3 selected)`,W/2,72,15,'#aaa');
+  txt(`(${G.lineupSel[step].length} selected — need at least 2)`,W/2,72,15,'#aaa');
 
   const avail=ROSTER.filter(p=>save.unlocked.includes(p.id));
   const cols=Math.min(avail.length,4);
@@ -581,7 +581,7 @@ function drawLineup(){
   });
 
   // ready button
-  if(G.lineupSel[step].length===3){
+  if(G.lineupSel[step].length>=2){
     btn('READY  ▶',W/2-110,H-70,220,50,'#22aa44');
     if(btnHit(W/2-110,H-70,220,50)){
       G.teams[step].lineup=G.lineupSel[step];
@@ -591,7 +591,7 @@ function drawLineup(){
     }
   } else {
     fillRR(W/2-110,H-70,220,50,10,'#333');
-    txt('Pick 3 to continue',W/2,H-38,15,'#666');
+    txt('Pick at least 2',W/2,H-38,15,'#666');
   }
 
   btn('Shop 🛒',20,H-70,130,50,'#aa6600');
