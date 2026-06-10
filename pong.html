@@ -53,7 +53,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => { keys[e.key] = false; });
 
 function serve() {
-  const speed = 5 + state.scores[0] * 0.1 + state.scores[1] * 0.1;
+  const speed = 9 + state.scores[0] * 0.2 + state.scores[1] * 0.2;
   const dir = state.lastScored === 1 ? -1 : 1;
   const angle = (Math.random() * 60 - 30) * Math.PI / 180;
   state.ball.x = W / 2;
