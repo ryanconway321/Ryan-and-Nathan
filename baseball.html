@@ -51,6 +51,55 @@
     z-index: 20;
     pointer-events: none;
   }
+  #pauseBtn {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 25;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid #00ffcc44;
+    border-radius: 8px;
+    padding: 8px 20px;
+    color: #00ffcc;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    cursor: pointer;
+    display: none;
+  }
+  #pauseBtn:hover { background: rgba(0,255,204,0.15); }
+  #pauseOverlay {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 40;
+  }
+  #pauseOverlay h2 {
+    font-size: 64px;
+    color: #00ffcc;
+    text-shadow: 0 0 30px #00ffcc;
+    letter-spacing: 6px;
+    margin-bottom: 24px;
+  }
+  #resumeBtn {
+    background: #00ffcc;
+    color: #000;
+    border: none;
+    padding: 14px 40px;
+    font-size: 20px;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    letter-spacing: 3px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  #resumeBtn:hover { opacity: 0.85; }
   .hud-panel {
     background: rgba(0,0,0,0.7);
     border: 1px solid #00ffcc44;
@@ -286,6 +335,13 @@
     <span>3 strikes = out &nbsp;•&nbsp; 3 outs = game over</span>
   </div>
   <button id="startBtn" onclick="startGame()">PLAY BALL</button>
+</div>
+
+<button id="pauseBtn" onclick="togglePause()">⏸ PAUSE</button>
+
+<div id="pauseOverlay">
+  <h2>PAUSED</h2>
+  <button id="resumeBtn" onclick="togglePause()">▶ RESUME</button>
 </div>
 
 <div id="gameOverPanel">
@@ -1127,8 +1183,19 @@ function launchPitch() {
 }
 
 // ─── Game flow ────────────────────────────────────────────────────────────────
+let paused = false;
+
+function togglePause() {
+  paused = !paused;
+  document.getElementById('pauseOverlay').style.display = paused ? 'flex' : 'none';
+  document.getElementById('pauseBtn').textContent = paused ? '▶ RESUME' : '⏸ PAUSE';
+  if (!paused) requestAnimationFrame(render);
+}
+
 function startGame() {
   document.getElementById('overlay').style.display = 'none';
+  document.getElementById('pauseBtn').style.display = 'block';
+  paused = false;
   state.gameActive = true;
   state.score = 0;
   state.hits = 0;
@@ -1150,8 +1217,8 @@ function gameOver() {
   state.phase = 'gameover';
   document.getElementById('finalScore').textContent =
     `Score: ${state.score}  |  Hits: ${state.hits}`;
-  const panel = document.getElementById('gameOverPanel');
-  panel.style.display = 'flex';
+  document.getElementById('gameOverPanel').style.display = 'flex';
+  document.getElementById('pauseBtn').style.display = 'none';
 }
 
 function restartGame() {
@@ -1355,7 +1422,7 @@ function render() {
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, W, H);
 
-  requestAnimationFrame(render);
+  if (!paused) requestAnimationFrame(render);
 }
 
 // ─── Keyboard fallback (spacebar to swing for testing) ───────────────────────
@@ -1366,6 +1433,9 @@ document.addEventListener('keydown', e => {
   }
   if (e.code === 'Enter' && !state.gameActive) {
     startGame();
+  }
+  if (e.code === 'Escape' && state.gameActive) {
+    togglePause();
   }
 });
 
