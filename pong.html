@@ -2,244 +2,505 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pong — Ryan & Nathan</title>
+<title>PONG 3D — Ryan & Nathan</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; font-family: 'Courier New', monospace; overflow: hidden; }
-  canvas { display: block; border: 2px solid rgba(255,255,255,0.1); }
-  #info { color: rgba(255,255,255,0.3); font-size: 12px; margin-top: 12px; letter-spacing: 1px; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; overflow:hidden; font-family:'Courier New',monospace; }
+  #ui { display:flex; gap:0; position:relative; }
+  canvas { display:block; }
+  #divider { position:absolute; left:50%; top:0; width:2px; height:100%; background:rgba(255,255,255,0.15); pointer-events:none; }
+  #labels { display:flex; justify-content:space-between; width:100%; padding:6px 20px; color:rgba(255,255,255,0.4); font-size:12px; letter-spacing:1px; }
+  #mode-btn { margin-top:8px; background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.2); color:rgba(255,255,255,0.6); font-family:'Courier New',monospace; font-size:12px; padding:6px 18px; border-radius:20px; cursor:pointer; letter-spacing:1px; }
+  #mode-btn:hover { background:rgba(255,255,255,0.13); }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<div id="info">W/S — left paddle &nbsp;|&nbsp; ↑/↓ — right paddle &nbsp;|&nbsp; SPACE — serve</div>
+
+<div id="ui">
+  <canvas id="c1"></canvas>
+  <canvas id="c2"></canvas>
+  <div id="divider"></div>
+</div>
+<div id="labels">
+  <span id="l1">P1 — W/S/A/D</span>
+  <span style="color:rgba(255,255,255,0.2)">SPACE to serve</span>
+  <span id="l2">↑/↓/←/→ — P2</span>
+</div>
+<button id="mode-btn">Switch to Classic View</button>
 
 <script>
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
+// ── Config ────────────────────────────────────────────────────────────────────
+const HALF_W   = Math.min(460, Math.floor((window.innerWidth - 4) / 2));
+const H        = Math.min(520, window.innerHeight - 80);
+const AW = 320, AH = 220, AD = 1100; // arena half-width, half-height, depth
+const FOCAL    = 480;
+const CAM_OFF  = 280;
+const PAD_W    = 55, PAD_H = 75;
+const BALL_R   = 11;
+const PAD_SPD  = 5;
+const WIN_TO   = 7;
+const COLORS   = { p1:'#818cf8', p2:'#f472b6', ball:'#63caff', floor:'#0f172a', wall:'#1e293b' };
 
-const W = Math.min(900, window.innerWidth - 20);
-const H = Math.min(600, window.innerHeight - 60);
-canvas.width = W;
-canvas.height = H;
+// ── Canvases ──────────────────────────────────────────────────────────────────
+const c1 = document.getElementById('c1'), c2 = document.getElementById('c2');
+[c1, c2].forEach(c => { c.width = HALF_W; c.height = H; });
+const ctx1 = c1.getContext('2d'), ctx2 = c2.getContext('2d');
 
-const PAD_W = 12, PAD_H = 80, PAD_SPEED = 6;
-const BALL_SIZE = 10;
-const WINNING_SCORE = 7;
-
-const state = {
-  phase: 'start', // start | playing | scored | won
-  winner: null,
-  scores: [0, 0],
-  paddles: [
-    { x: 20, y: H/2 - PAD_H/2 },
-    { x: W - 20 - PAD_W, y: H/2 - PAD_H/2 },
-  ],
-  ball: { x: W/2, y: H/2, vx: 0, vy: 0 },
-  lastScored: null, // 0 or 1
-  trail: [],
-};
+// ── Game state ────────────────────────────────────────────────────────────────
+let mode = 'fp'; // fp | classic
+let phase = 'start';
+let scores = [0, 0];
+let winner = null;
+let lastScored = null;
+let p1 = { x:0, y:0 };
+let p2 = { x:0, y:0 };
+let ball = { x:0, y:0, z:AD/2, vx:3, vy:2, vz:9 };
+let trail = [];
+let powerUp = null;
+let powerTimer = 0;
+let effects = []; // screen flash effects
 
 const keys = {};
 document.addEventListener('keydown', e => {
   keys[e.key] = true;
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) e.preventDefault();
   if (e.key === ' ') {
-    e.preventDefault();
-    if (state.phase === 'start' || state.phase === 'scored') serve();
-    if (state.phase === 'won') resetGame();
+    if (phase === 'start' || phase === 'scored') serve();
+    if (phase === 'won') resetGame();
   }
 });
 document.addEventListener('keyup', e => { keys[e.key] = false; });
 
+document.getElementById('mode-btn').onclick = () => {
+  mode = mode === 'fp' ? 'classic' : 'fp';
+  document.getElementById('mode-btn').textContent =
+    mode === 'fp' ? 'Switch to Classic View' : 'Switch to FP View';
+};
+
+// ── Serve ─────────────────────────────────────────────────────────────────────
 function serve() {
-  const speed = 9 + state.scores[0] * 0.2 + state.scores[1] * 0.2;
-  const dir = state.lastScored === 1 ? -1 : 1;
-  const angle = (Math.random() * 60 - 30) * Math.PI / 180;
-  state.ball.x = W / 2;
-  state.ball.y = H / 2;
-  state.ball.vx = dir * speed * Math.cos(angle);
-  state.ball.vy = speed * Math.sin(angle);
-  state.trail = [];
-  state.phase = 'playing';
+  const spd = 9 + (scores[0]+scores[1]) * 0.3;
+  const dir = lastScored === 1 ? -1 : 1;
+  ball = {
+    x: 0, y: 0, z: AD/2,
+    vx: (Math.random()*4-2),
+    vy: (Math.random()*3-1.5),
+    vz: dir * spd,
+  };
+  trail = [];
+  phase = 'playing';
 }
 
 function resetGame() {
-  state.scores = [0, 0];
-  state.paddles[0].y = H/2 - PAD_H/2;
-  state.paddles[1].y = H/2 - PAD_H/2;
-  state.lastScored = null;
-  state.winner = null;
-  state.phase = 'start';
+  scores = [0,0]; winner = null; lastScored = null;
+  p1 = { x:0, y:0 }; p2 = { x:0, y:0 };
+  phase = 'start'; effects = [];
+  powerUp = null;
 }
 
+// ── Update ────────────────────────────────────────────────────────────────────
 function update() {
-  if (state.phase !== 'playing') return;
+  if (phase !== 'playing') return;
 
-  // Move paddles
-  if (keys['w'] || keys['W']) state.paddles[0].y -= PAD_SPEED;
-  if (keys['s'] || keys['S']) state.paddles[0].y += PAD_SPEED;
-  if (keys['ArrowUp'])   state.paddles[1].y -= PAD_SPEED;
-  if (keys['ArrowDown']) state.paddles[1].y += PAD_SPEED;
+  // Paddles
+  if (keys['a']||keys['A']) p1.x -= PAD_SPD;
+  if (keys['d']||keys['D']) p1.x += PAD_SPD;
+  if (keys['w']||keys['W']) p1.y += PAD_SPD;
+  if (keys['s']||keys['S']) p1.y -= PAD_SPD;
+  if (keys['ArrowLeft'])  p2.x -= PAD_SPD;
+  if (keys['ArrowRight']) p2.x += PAD_SPD;
+  if (keys['ArrowUp'])    p2.y += PAD_SPD;
+  if (keys['ArrowDown'])  p2.y -= PAD_SPD;
 
-  state.paddles.forEach(p => {
-    p.y = Math.max(0, Math.min(H - PAD_H, p.y));
-  });
+  p1.x = Math.max(-AW+PAD_W/2, Math.min(AW-PAD_W/2, p1.x));
+  p1.y = Math.max(-AH+PAD_H/2, Math.min(AH-PAD_H/2, p1.y));
+  p2.x = Math.max(-AW+PAD_W/2, Math.min(AW-PAD_W/2, p2.x));
+  p2.y = Math.max(-AH+PAD_H/2, Math.min(AH-PAD_H/2, p2.y));
 
-  // Move ball
-  const b = state.ball;
-  b.x += b.vx;
-  b.y += b.vy;
-
-  // Trail
-  state.trail.push({ x: b.x, y: b.y });
-  if (state.trail.length > 12) state.trail.shift();
+  // Ball
+  ball.x += ball.vx; ball.y += ball.vy; ball.z += ball.vz;
+  trail.push({x:ball.x, y:ball.y, z:ball.z});
+  if (trail.length > 18) trail.shift();
 
   // Wall bounce
-  if (b.y - BALL_SIZE/2 <= 0) { b.y = BALL_SIZE/2; b.vy = Math.abs(b.vy); }
-  if (b.y + BALL_SIZE/2 >= H) { b.y = H - BALL_SIZE/2; b.vy = -Math.abs(b.vy); }
+  if (Math.abs(ball.x) > AW - BALL_R) { ball.vx *= -1; ball.x = Math.sign(ball.x)*(AW-BALL_R); addEffect('wall'); }
+  if (Math.abs(ball.y) > AH - BALL_R) { ball.vy *= -1; ball.y = Math.sign(ball.y)*(AH-BALL_R); addEffect('wall'); }
 
-  // Paddle collision
-  [0, 1].forEach(i => {
-    const p = state.paddles[i];
-    const hitting = i === 0
-      ? b.x - BALL_SIZE/2 <= p.x + PAD_W && b.x - BALL_SIZE/2 >= p.x && b.vx < 0
-      : b.x + BALL_SIZE/2 >= p.x && b.x + BALL_SIZE/2 <= p.x + PAD_W && b.vx > 0;
-
-    if (hitting && b.y >= p.y - BALL_SIZE/2 && b.y <= p.y + PAD_H + BALL_SIZE/2) {
-      const hitPos = (b.y - (p.y + PAD_H/2)) / (PAD_H/2); // -1 to 1
-      const angle = hitPos * 60 * Math.PI / 180;
-      const speed = Math.min(Math.sqrt(b.vx*b.vx + b.vy*b.vy) * 1.05, 20);
-      b.vx = (i === 0 ? 1 : -1) * speed * Math.cos(angle);
-      b.vy = speed * Math.sin(angle);
-      if (i === 0) b.x = p.x + PAD_W + BALL_SIZE/2;
-      else b.x = p.x - BALL_SIZE/2;
+  // Paddle hit P1 (z ≈ 0)
+  if (ball.vz < 0 && ball.z - BALL_R <= 0 && ball.z > -40) {
+    if (Math.abs(ball.x - p1.x) < PAD_W/2 + BALL_R && Math.abs(ball.y - p1.y) < PAD_H/2 + BALL_R) {
+      const dx = (ball.x - p1.x) / (PAD_W/2);
+      const dy = (ball.y - p1.y) / (PAD_H/2);
+      const spd = Math.min(Math.hypot(ball.vx,ball.vy,ball.vz)*1.06, 22);
+      ball.vx = dx * 4; ball.vy = dy * 3;
+      ball.vz = Math.sqrt(Math.max(1, spd*spd - ball.vx*ball.vx - ball.vy*ball.vy));
+      ball.z = BALL_R;
+      addEffect('hit', 0);
     }
-  });
+  }
+  // Paddle hit P2 (z ≈ AD)
+  if (ball.vz > 0 && ball.z + BALL_R >= AD && ball.z < AD+40) {
+    if (Math.abs(ball.x - p2.x) < PAD_W/2 + BALL_R && Math.abs(ball.y - p2.y) < PAD_H/2 + BALL_R) {
+      const dx = (ball.x - p2.x) / (PAD_W/2);
+      const dy = (ball.y - p2.y) / (PAD_H/2);
+      const spd = Math.min(Math.hypot(ball.vx,ball.vy,ball.vz)*1.06, 22);
+      ball.vx = dx * 4; ball.vy = dy * 3;
+      ball.vz = -Math.sqrt(Math.max(1, spd*spd - ball.vx*ball.vx - ball.vy*ball.vy));
+      ball.z = AD - BALL_R;
+      addEffect('hit', 1);
+    }
+  }
 
   // Score
-  if (b.x < -20) {
-    state.scores[1]++;
-    state.lastScored = 1;
-    checkWin();
-  } else if (b.x > W + 20) {
-    state.scores[0]++;
-    state.lastScored = 0;
-    checkWin();
+  if (ball.z < -60) { scores[1]++; lastScored = 1; addEffect('score',1); checkWin(); }
+  if (ball.z > AD+60) { scores[0]++; lastScored = 0; addEffect('score',0); checkWin(); }
+
+  // Power-up spawn
+  powerTimer++;
+  if (!powerUp && powerTimer > 300 && Math.random() < 0.005) {
+    powerUp = { x: (Math.random()-0.5)*AW, y: (Math.random()-0.5)*AH, z: AD/2, type: ['big','fast','slow'][Math.floor(Math.random()*3)], age:0 };
   }
+  if (powerUp) {
+    powerUp.age++;
+    if (powerUp.age > 400) powerUp = null;
+    else if (Math.hypot(ball.x-powerUp.x, ball.y-powerUp.y, ball.z-powerUp.z) < 30) {
+      applyPower(powerUp.type); powerUp = null; powerTimer = 0;
+    }
+  }
+
+  // Age effects
+  effects = effects.filter(e => { e.age++; return e.age < e.life; });
+}
+
+function addEffect(type, who) {
+  effects.push({ type, who, age:0, life: type==='score'?80:type==='hit'?30:15 });
+}
+
+function applyPower(type) {
+  if (type === 'big') { /* handled in draw via flag */ }
+  if (type === 'fast') { ball.vz *= 1.5; }
+  if (type === 'slow') { ball.vz *= 0.6; }
 }
 
 function checkWin() {
-  if (state.scores[0] >= WINNING_SCORE) { state.winner = 0; state.phase = 'won'; }
-  else if (state.scores[1] >= WINNING_SCORE) { state.winner = 1; state.phase = 'won'; }
-  else state.phase = 'scored';
+  if (scores[0] >= WIN_TO) { winner=0; phase='won'; }
+  else if (scores[1] >= WIN_TO) { winner=1; phase='won'; }
+  else phase = 'scored';
 }
 
-function draw() {
-  ctx.clearRect(0, 0, W, H);
+// ── Projection ────────────────────────────────────────────────────────────────
+function projP1(wx, wy, wz) {
+  const dz = wz + CAM_OFF;
+  if (dz < 1) return null;
+  const s = FOCAL / dz;
+  return { sx: wx*s, sy: -wy*s, s };
+}
+function projP2(wx, wy, wz) {
+  const dz = (AD - wz) + CAM_OFF;
+  if (dz < 1) return null;
+  const s = FOCAL / dz;
+  return { sx: -wx*s, sy: -wy*s, s };
+}
 
+// ── Draw helpers ──────────────────────────────────────────────────────────────
+function drawFP(ctx, proj, cx, cy, pSelf, pOpp, selfColor, oppColor, isP1) {
   // Background
-  ctx.fillStyle = '#050505';
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#030712';
+  ctx.fillRect(0, 0, HALF_W, H);
 
-  // Center line
-  ctx.setLineDash([10, 14]);
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
-  ctx.setLineDash([]);
+  // Flash effects
+  const scoreFlash = effects.find(e => e.type==='score');
+  if (scoreFlash) {
+    const alpha = (1 - scoreFlash.age/scoreFlash.life) * 0.25;
+    const who = scoreFlash.who;
+    ctx.fillStyle = (who === (isP1?1:0)) ? `rgba(248,113,113,${alpha})` : `rgba(52,211,153,${alpha})`;
+    ctx.fillRect(0,0,HALF_W,H);
+  }
 
-  // Scores
-  ctx.font = `bold ${Math.floor(H * 0.18)}px 'Courier New'`;
-  ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  ctx.fillText(state.scores[0], W/4, H * 0.52);
-  ctx.fillText(state.scores[1], W*3/4, H * 0.52);
+  // --- Arena walls ---
+  // Corner points at near (z=0) and far (z=AD)
+  const corners = [
+    [-AW,-AH],[AW,-AH],[AW,AH],[-AW,AH]
+  ];
+  const near = corners.map(([x,y]) => proj(x,y,0));
+  const far  = corners.map(([x,y]) => proj(x,y,AD));
+
+  // Floor (y=-AH)
+  if (near[0] && near[1] && far[1] && far[0]) {
+    ctx.beginPath();
+    ctx.moveTo(cx+near[0].sx, cy+near[0].sy);
+    ctx.lineTo(cx+near[1].sx, cy+near[1].sy);
+    ctx.lineTo(cx+far[1].sx, cy+far[1].sy);
+    ctx.lineTo(cx+far[0].sx, cy+far[0].sy);
+    const fg = ctx.createLinearGradient(cx, cy+near[0].sy, cx, cy+(far[0]?.sy??0));
+    fg.addColorStop(0,'#0a0f20'); fg.addColorStop(1,'#050810');
+    ctx.fillStyle = fg; ctx.fill();
+  }
+  // Ceiling (y=AH)
+  if (near[2] && near[3] && far[3] && far[2]) {
+    ctx.beginPath();
+    ctx.moveTo(cx+near[3].sx, cy+near[3].sy);
+    ctx.lineTo(cx+near[2].sx, cy+near[2].sy);
+    ctx.lineTo(cx+far[2].sx, cy+far[2].sy);
+    ctx.lineTo(cx+far[3].sx, cy+far[3].sy);
+    ctx.fillStyle = '#060a18'; ctx.fill();
+  }
+
+  // Grid lines on floor
+  ctx.strokeStyle = 'rgba(99,102,241,0.15)'; ctx.lineWidth = 1;
+  for (let gx = -AW; gx <= AW; gx += 80) {
+    const a = proj(gx,-AH,0), b = proj(gx,-AH,AD);
+    if (a&&b) { ctx.beginPath(); ctx.moveTo(cx+a.sx,cy+a.sy); ctx.lineTo(cx+b.sx,cy+b.sy); ctx.stroke(); }
+  }
+  for (let gz = 0; gz <= AD; gz += 120) {
+    const a = proj(-AW,-AH,gz), b = proj(AW,-AH,gz);
+    if (a&&b) { ctx.beginPath(); ctx.moveTo(cx+a.sx,cy+a.sy); ctx.lineTo(cx+b.sx,cy+b.sy); ctx.stroke(); }
+  }
+
+  // Side walls
+  [[near[0],near[3],far[3],far[0]], [near[1],near[2],far[2],far[1]]].forEach((pts, si) => {
+    if (pts.every(Boolean)) {
+      ctx.beginPath();
+      ctx.moveTo(cx+pts[0].sx, cy+pts[0].sy);
+      pts.slice(1).forEach(p => ctx.lineTo(cx+p.sx, cy+p.sy));
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(15,20,40,0.8)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(99,102,241,0.08)'; ctx.lineWidth=1; ctx.stroke();
+    }
+  });
+
+  // Back wall
+  if (far.every(Boolean)) {
+    ctx.beginPath();
+    ctx.moveTo(cx+far[0].sx, cy+far[0].sy);
+    far.slice(1).forEach(p => ctx.lineTo(cx+p.sx, cy+p.sy));
+    ctx.closePath();
+    ctx.fillStyle = '#0a0e1f'; ctx.fill();
+    ctx.strokeStyle = 'rgba(99,102,241,0.2)'; ctx.lineWidth=1; ctx.stroke();
+  }
+
+  // Arena border lines
+  ctx.strokeStyle = 'rgba(129,140,248,0.35)'; ctx.lineWidth = 1.5;
+  [[near[0],near[1]],[near[1],near[2]],[near[2],near[3]],[near[3],near[0]],
+   [far[0],far[1]],[far[1],far[2]],[far[2],far[3]],[far[3],far[0]],
+   [near[0],far[0]],[near[1],far[1]],[near[2],far[2]],[near[3],far[3]]]
+  .forEach(([a,b]) => {
+    if (a&&b) { ctx.beginPath(); ctx.moveTo(cx+a.sx,cy+a.sy); ctx.lineTo(cx+b.sx,cy+b.sy); ctx.stroke(); }
+  });
+
+  // Power-up
+  if (powerUp) {
+    const pp = proj(powerUp.x, powerUp.y, powerUp.z);
+    if (pp) {
+      const pulseSz = 10 * pp.s / FOCAL * 200 * (1 + 0.3*Math.sin(powerUp.age*0.1));
+      const col = powerUp.type==='big'?'#fbbf24':powerUp.type==='fast'?'#f87171':'#34d399';
+      ctx.beginPath(); ctx.arc(cx+pp.sx, cy+pp.sy, pulseSz, 0, Math.PI*2);
+      ctx.fillStyle = col+'55'; ctx.fill();
+      ctx.beginPath(); ctx.arc(cx+pp.sx, cy+pp.sy, pulseSz*0.5, 0, Math.PI*2);
+      ctx.fillStyle = col; ctx.fill();
+      ctx.fillStyle='#fff'; ctx.font=`bold ${Math.max(8,pulseSz*0.9)}px sans-serif`; ctx.textAlign='center';
+      ctx.fillText(powerUp.type==='big'?'BIG':powerUp.type==='fast'?'FAST':'SLOW', cx+pp.sx, cy+pp.sy+pulseSz+12);
+    }
+  }
 
   // Ball trail
-  state.trail.forEach((t, i) => {
-    const alpha = (i / state.trail.length) * 0.3;
-    const size = BALL_SIZE * (i / state.trail.length) * 0.8;
-    ctx.beginPath();
-    ctx.arc(t.x, t.y, size, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(99,202,255,${alpha})`;
-    ctx.fill();
+  trail.forEach((t, i) => {
+    const tp = proj(t.x, t.y, t.z);
+    if (!tp) return;
+    const a = (i/trail.length)*0.35;
+    const r = BALL_R * tp.s / FOCAL * 200 * (i/trail.length)*0.7;
+    ctx.beginPath(); ctx.arc(cx+tp.sx, cy+tp.sy, r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(99,202,255,${a})`; ctx.fill();
   });
 
   // Ball
-  if (state.phase === 'playing') {
-    const b = state.ball;
-    // Glow
-    const glow = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, BALL_SIZE * 3);
-    glow.addColorStop(0, 'rgba(99,202,255,0.4)');
-    glow.addColorStop(1, 'rgba(99,202,255,0)');
-    ctx.fillStyle = glow;
-    ctx.beginPath(); ctx.arc(b.x, b.y, BALL_SIZE * 3, 0, Math.PI * 2); ctx.fill();
-    // Ball
-    ctx.beginPath(); ctx.arc(b.x, b.y, BALL_SIZE, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff'; ctx.fill();
+  if (phase === 'playing' || phase === 'scored') {
+    const bp = proj(ball.x, ball.y, ball.z);
+    if (bp) {
+      const r = Math.max(2, BALL_R * bp.s / FOCAL * 200);
+      // Glow
+      const grd = ctx.createRadialGradient(cx+bp.sx,cy+bp.sy,0,cx+bp.sx,cy+bp.sy,r*4);
+      grd.addColorStop(0,'rgba(99,202,255,0.6)'); grd.addColorStop(1,'rgba(99,202,255,0)');
+      ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(cx+bp.sx,cy+bp.sy,r*4,0,Math.PI*2); ctx.fill();
+      // Ball
+      ctx.beginPath(); ctx.arc(cx+bp.sx,cy+bp.sy,r,0,Math.PI*2);
+      ctx.fillStyle='#fff'; ctx.fill();
+    }
   }
 
-  // Paddles
-  const colors = ['#818cf8', '#f472b6'];
-  state.paddles.forEach((p, i) => {
-    // Glow
-    const glow = ctx.createRadialGradient(p.x + PAD_W/2, p.y + PAD_H/2, 0, p.x + PAD_W/2, p.y + PAD_H/2, PAD_H);
-    glow.addColorStop(0, colors[i] + '55');
-    glow.addColorStop(1, colors[i] + '00');
-    ctx.fillStyle = glow;
-    ctx.fillRect(p.x - PAD_H/2, p.y, PAD_W + PAD_H, PAD_H);
-    // Paddle
-    ctx.fillStyle = colors[i];
-    ctx.beginPath();
-    ctx.roundRect(p.x, p.y, PAD_W, PAD_H, 6);
-    ctx.fill();
+  // Opponent paddle (far end)
+  drawPad3D(ctx, proj, cx, cy, pOpp.x, pOpp.y, AD, oppColor);
+
+  // Own paddle (near end) — shown as a rect at bottom of screen in FP
+  const padY = H - 60;
+  const padScale = FOCAL / CAM_OFF;
+  const padSW = PAD_W * padScale * 0.5;
+  const padSH = PAD_H * padScale * 0.5;
+  const padSX = cx + pSelf.x * padScale * 0.5;
+  ctx.fillStyle = selfColor + 'cc';
+  ctx.beginPath();
+  ctx.roundRect(padSX - padSW/2, padY - padSH/2, padSW, padSH, 6);
+  ctx.fill();
+  ctx.strokeStyle = selfColor; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(padSX - padSW/2, padY - padSH/2, padSW, padSH, 6);
+  ctx.stroke();
+
+  // HUD
+  ctx.textAlign = 'center';
+  ctx.font = `bold ${Math.floor(H*0.1)}px 'Courier New'`;
+  ctx.fillStyle = selfColor + '22';
+  ctx.fillText(scores[isP1?0:1], HALF_W/2 - 30, 55);
+  ctx.fillStyle = 'rgba(255,255,255,0.12)';
+  ctx.font = `bold ${Math.floor(H*0.065)}px 'Courier New'`;
+  ctx.fillText(scores[isP1?1:0], HALF_W/2 + 35, 42);
+
+  // Overlay
+  drawFPOverlay(ctx, isP1, selfColor);
+}
+
+function drawPad3D(ctx, proj, cx, cy, px, py, pz, color) {
+  const corners = [
+    [px-PAD_W/2, py-PAD_H/2, pz],
+    [px+PAD_W/2, py-PAD_H/2, pz],
+    [px+PAD_W/2, py+PAD_H/2, pz],
+    [px-PAD_W/2, py+PAD_H/2, pz],
+  ];
+  const pts = corners.map(([x,y,z]) => proj(x,y,z));
+  if (!pts.every(Boolean)) return;
+  ctx.beginPath();
+  ctx.moveTo(cx+pts[0].sx, cy+pts[0].sy);
+  pts.slice(1).forEach(p => ctx.lineTo(cx+p.sx, cy+p.sy));
+  ctx.closePath();
+  ctx.fillStyle = color + '99'; ctx.fill();
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+}
+
+function drawFPOverlay(ctx, isP1, color) {
+  if (phase === 'start') {
+    drawMsg(ctx, 'READY', 'SPACE to serve', color);
+  } else if (phase === 'scored') {
+    const iScored = lastScored === (isP1?1:0);
+    drawMsg(ctx, iScored ? '😬 MISSED' : '✓ POINT!', 'SPACE to continue', iScored?'#f87171':color);
+  } else if (phase === 'won') {
+    const iWon = winner === (isP1?0:1);
+    drawMsg(ctx, iWon ? '🏆 YOU WIN!' : 'YOU LOSE', 'SPACE to rematch', iWon?'#fbbf24':'#f87171');
+  }
+}
+
+function drawMsg(ctx, title, sub, color) {
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(0,0,HALF_W,H);
+  ctx.textAlign='center';
+  ctx.shadowColor=color; ctx.shadowBlur=25;
+  ctx.font=`bold ${Math.floor(H*0.088)}px 'Courier New'`;
+  ctx.fillStyle=color;
+  ctx.fillText(title, HALF_W/2, H/2-10);
+  ctx.shadowBlur=0;
+  ctx.font=`${Math.floor(H*0.038)}px 'Courier New'`;
+  ctx.fillStyle='rgba(255,255,255,0.45)';
+  ctx.fillText(sub, HALF_W/2, H/2+H*0.08);
+}
+
+// ── Classic 2D view ───────────────────────────────────────────────────────────
+function drawClassic() {
+  const W = HALF_W*2, ctx = ctx1;
+  c1.width = W; c1.height = H; c2.width=0; c2.height=0;
+
+  ctx.fillStyle='#050505'; ctx.fillRect(0,0,W,H);
+
+  // Center line
+  ctx.setLineDash([10,14]); ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Scores (big background)
+  ctx.font=`bold ${Math.floor(H*0.22)}px 'Courier New'`; ctx.textAlign='center';
+  ctx.fillStyle='rgba(255,255,255,0.06)';
+  ctx.fillText(scores[0], W/4, H*0.54);
+  ctx.fillText(scores[1], W*3/4, H*0.54);
+
+  // Ball trail
+  trail.forEach((t,i) => {
+    const tx = W/2 + (t.x/AW)*(W/2-30);
+    const ty = H/2 - (t.y/AH)*(H/2-20);
+    const a = (i/trail.length)*0.4;
+    ctx.beginPath(); ctx.arc(tx,ty,BALL_R*(i/trail.length)*0.8,0,Math.PI*2);
+    ctx.fillStyle=`rgba(99,202,255,${a})`; ctx.fill();
   });
 
-  // Overlay messages
-  ctx.textAlign = 'center';
-  if (state.phase === 'start') {
-    drawOverlay('PONG', 'Press SPACE to serve', null);
-  } else if (state.phase === 'scored') {
-    const who = state.lastScored === 0 ? 'Player 1' : 'Player 2';
-    drawOverlay(`${who} scores!`, 'Press SPACE to continue', colors[state.lastScored]);
-  } else if (state.phase === 'won') {
-    const who = state.winner === 0 ? 'Player 1' : 'Player 2';
-    drawOverlay(`${who} wins! 🎉`, 'Press SPACE to play again', colors[state.winner]);
+  // Ball
+  if (phase==='playing'||phase==='scored') {
+    const bx = W/2 + (ball.x/AW)*(W/2-30);
+    const by = H/2 - (ball.y/AH)*(H/2-20);
+    const grd = ctx.createRadialGradient(bx,by,0,bx,by,BALL_R*3);
+    grd.addColorStop(0,'rgba(99,202,255,0.5)'); grd.addColorStop(1,'rgba(99,202,255,0)');
+    ctx.fillStyle=grd; ctx.beginPath(); ctx.arc(bx,by,BALL_R*3,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(bx,by,BALL_R,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
   }
 
-  // Player labels
-  ctx.font = `bold 13px 'Courier New'`;
-  ctx.fillStyle = colors[0] + 'cc';
-  ctx.textAlign = 'left';
-  ctx.fillText('P1  W/S', 24, 22);
-  ctx.fillStyle = colors[1] + 'cc';
-  ctx.textAlign = 'right';
-  ctx.fillText('↑/↓  P2', W - 24, 22);
-}
-
-function drawOverlay(title, sub, color) {
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.fillRect(0, 0, W, H);
-
-  if (color) {
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 30;
+  // Paddles as vertical bars
+  function drawCPad(player, color) {
+    const p = player===0?p1:p2;
+    const px = player===0 ? 24 : W-24-14;
+    const py = H/2 - (p.y/AH)*(H/2-PAD_H/2) - PAD_H/2;
+    const grd = ctx.createRadialGradient(px+7,py+PAD_H/2,0,px+7,py+PAD_H/2,PAD_H);
+    grd.addColorStop(0,color+'55'); grd.addColorStop(1,color+'00');
+    ctx.fillStyle=grd; ctx.fillRect(px-PAD_H/2,py,14+PAD_H,PAD_H);
+    ctx.fillStyle=color; ctx.beginPath(); ctx.roundRect(px,py,14,PAD_H,5); ctx.fill();
   }
-  ctx.font = `bold ${Math.floor(H * 0.11)}px 'Courier New'`;
-  ctx.fillStyle = color || '#fff';
-  ctx.textAlign = 'center';
-  ctx.fillText(title, W/2, H/2 - 10);
-  ctx.shadowBlur = 0;
+  drawCPad(0, COLORS.p1); drawCPad(1, COLORS.p2);
 
-  ctx.font = `${Math.floor(H * 0.038)}px 'Courier New'`;
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.fillText(sub, W/2, H/2 + H * 0.08);
+  // Overlay
+  if (phase==='start') {
+    ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,0,W,H);
+    ctx.shadowColor=COLORS.p1; ctx.shadowBlur=20;
+    ctx.font=`bold ${Math.floor(H*0.12)}px 'Courier New'`; ctx.fillStyle='#fff'; ctx.textAlign='center';
+    ctx.fillText('PONG 3D', W/2, H/2-10); ctx.shadowBlur=0;
+    ctx.font=`${Math.floor(H*0.04)}px 'Courier New'`; ctx.fillStyle='rgba(255,255,255,0.4)';
+    ctx.fillText('SPACE to serve', W/2, H/2+H*0.08);
+  } else if (phase==='scored') {
+    ctx.fillStyle='rgba(0,0,0,0.4)'; ctx.fillRect(0,0,W,H);
+    const col = lastScored===0?COLORS.p1:COLORS.p2;
+    ctx.shadowColor=col; ctx.shadowBlur=20;
+    ctx.font=`bold ${Math.floor(H*0.09)}px 'Courier New'`; ctx.fillStyle=col; ctx.textAlign='center';
+    ctx.fillText(`P${lastScored+1} scores!`, W/2, H/2); ctx.shadowBlur=0;
+    ctx.font=`${Math.floor(H*0.036)}px 'Courier New'`; ctx.fillStyle='rgba(255,255,255,0.4)';
+    ctx.fillText('SPACE to continue', W/2, H/2+H*0.08);
+  } else if (phase==='won') {
+    ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(0,0,W,H);
+    const col = winner===0?COLORS.p1:COLORS.p2;
+    ctx.shadowColor='#fbbf24'; ctx.shadowBlur=30;
+    ctx.font=`bold ${Math.floor(H*0.1)}px 'Courier New'`; ctx.fillStyle='#fbbf24'; ctx.textAlign='center';
+    ctx.fillText(`P${winner+1} WINS!`, W/2, H/2-10); ctx.shadowBlur=0;
+    ctx.font=`${Math.floor(H*0.036)}px 'Courier New'`; ctx.fillStyle='rgba(255,255,255,0.4)';
+    ctx.fillText('SPACE to play again', W/2, H/2+H*0.08);
+  }
 }
 
+// ── Main loop ─────────────────────────────────────────────────────────────────
 function loop() {
   update();
-  draw();
+
+  if (mode === 'fp') {
+    c1.width = HALF_W; c1.height = H;
+    c2.width = HALF_W; c2.height = H;
+    document.getElementById('divider').style.display = 'block';
+
+    // P1 view
+    drawFP(ctx1, projP1, HALF_W/2, H/2, p1, p2, COLORS.p1, COLORS.p2, true);
+    // P2 view
+    drawFP(ctx2, projP2, HALF_W/2, H/2, p2, p1, COLORS.p2, COLORS.p1, false);
+
+    document.getElementById('l1').textContent = 'P1 — W/S/A/D';
+    document.getElementById('l2').textContent = '↑/↓/←/→ — P2';
+  } else {
+    document.getElementById('divider').style.display = 'none';
+    drawClassic();
+    document.getElementById('l1').textContent = 'W/S — left paddle';
+    document.getElementById('l2').textContent = 'right paddle — ↑/↓';
+  }
+
   requestAnimationFrame(loop);
 }
 
