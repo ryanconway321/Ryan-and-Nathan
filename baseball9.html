@@ -54,6 +54,8 @@ document.addEventListener('keyup',   e => { if(e.code==='Space') spaceDown=false
 // ─── GAME STATE ────────────────────────────────────────────────────────────
 const INNINGS=3, OUTS_MAX=3;
 let G;
+let pitchBall={active:false};
+let swingBar={active:false, pos:0, dir:1, spd:2.5, hit:false};
 function resetGame(){
   G = {
     phase:'menu',            // menu|shop|lineup|game|gameover
@@ -139,7 +141,6 @@ function drawPlayer(px,py,s,p,dir=1){
   ctx.beginPath(); ctx.roundRect(-12*s,-32*s,24*s,32*s,4*s); ctx.fill();
   // number on jersey
   ctx.fillStyle='rgba(255,255,255,0.6)';
-  txt(p.id,'0',0,-20*s,9*s,'#fff');
   // arms
   ctx.fillStyle=p.skin;
   ctx.fillRect(-20*s,-28*s,9*s,8*s);
@@ -297,7 +298,6 @@ const PITCH_DEFS = [
   {type:'curve',    label:'Curveball',col:'#4488ff', spd:0.028, curve:38, desc:'Slow, breaks'},
   {type:'changeup', label:'Changeup', col:'#44cc44', spd:0.018, curve:15, desc:'Slow, deceives'},
 ];
-let pitchBall={active:false};
 
 function throwPitch(tx,ty,type){
   const def=PITCH_DEFS.find(d=>d.type===type);
@@ -350,8 +350,6 @@ function drawPitchBall(){
 }
 
 // ─── SWING BAR ─────────────────────────────────────────────────────────────
-let swingBar={active:false,pos:0,dir:1,spd:2.5,hit:false};
-
 function initSwing(){
   const batter=currentBatter();
   swingBar={active:true,pos:0,dir:1,spd:2.5+(10-batter.con)*0.18,hit:false};
