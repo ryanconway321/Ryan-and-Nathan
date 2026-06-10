@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Push-Up Baseball</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    overflow: hidden;
+    font-family: 'Courier New', monospace;
+    color: #fff;
+    user-select: none;
+  }
+  #gameCanvas {
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+  }
+  #webcamPreview {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    width: 180px;
+    height: 135px;
+    border: 2px solid #00ffcc;
+    border-radius: 8px;
+    box-shadow: 0 0 16px #00ffcc88;
+    object-fit: cover;
+    transform: scaleX(-1);
+    z-index: 10;
+  }
+  #poseCanvas {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    width: 180px;
+    height: 135px;
+    border-radius: 8px;
+    z-index: 11;
+    pointer-events: none;
+  }
+  #hud {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 16px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    z-index: 20;
+    pointer-events: none;
+  }
+  .hud-panel {
+    background: rgba(0,0,0,0.7);
+    border: 1px solid #00ffcc44;
+    border-radius: 8px;
+    padding: 10px 18px;
+    box-shadow: 0 0 12px #00ffcc22;
+  }
+  .hud-label {
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: #00ffcc99;
+    text-transform: uppercase;
+  }
+  .hud-value {
+    font-size: 28px;
+    font-weight: bold;
+    color: #fff;
+    line-height: 1.1;
+  }
+  .hud-value.accent { color: #ffdd00; text-shadow: 0 0 10px #ffdd0088; }
+  #strikes-display { display: flex; gap: 6px; margin-top: 4px; }
+  .strike-dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 2px solid #ff4444;
+    background: transparent;
+    transition: background 0.2s;
+  }
+  .strike-dot.filled { background: #ff4444; box-shadow: 0 0 8px #ff4444; }
+  #outs-display { display: flex; gap: 6px; margin-top: 4px; }
+  .out-dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    border: 2px solid #ff8800;
+    background: transparent;
+    transition: background 0.2s;
+  }
+  .out-dot.filled { background: #ff8800; box-shadow: 0 0 8px #ff8800; }
+  #statusMsg {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 64px;
+    font-weight: bold;
+    text-align: center;
+    pointer-events: none;
+    z-index: 30;
+    text-shadow: 0 0 30px currentColor;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+  }
+  #overlay h1 {
+    font-size: 72px;
+    letter-spacing: 6px;
+    color: #ffdd00;
+    text-shadow: 0 0 40px #ffdd00, 0 0 80px #ff8800;
+    margin-bottom: 16px;
+  }
+  #overlay .subtitle {
+    font-size: 20px;
+    color: #00ffcc;
+    letter-spacing: 3px;
+    margin-bottom: 40px;
+    text-shadow: 0 0 12px #00ffcc;
+  }
+  #overlay .instructions {
+    font-size: 15px;
+    color: #aaa;
+    text-align: center;
+    line-height: 2;
+    margin-bottom: 40px;
+    max-width: 480px;
+  }
+  #overlay .instructions span { color: #fff; font-weight: bold; }
+  #startBtn {
+    background: #ffdd00;
+    color: #000;
+    border: none;
+    padding: 16px 48px;
+    font-size: 22px;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    letter-spacing: 3px;
+    border-radius: 6px;
+    cursor: pointer;
+    box-shadow: 0 0 30px #ffdd0066;
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+  #startBtn:hover { transform: scale(1.05); box-shadow: 0 0 50px #ffdd00aa; }
+  #poseStatus {
+    position: absolute;
+    bottom: 158px;
+    right: 16px;
+    font-size: 11px;
+    color: #00ffcc;
+    text-align: right;
+    z-index: 12;
+    background: rgba(0,0,0,0.6);
+    padding: 4px 8px;
+    border-radius: 4px;
+    letter-spacing: 1px;
+  }
+  #swingMeter {
+    position: absolute;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  #swingMeterLabel {
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: #00ffcc99;
+  }
+  #swingMeterBar {
+    width: 200px;
+    height: 12px;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid #00ffcc44;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  #swingMeterFill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #00ffcc, #ffdd00);
+    border-radius: 6px;
+    transition: width 0.05s;
+  }
+  #gameOverPanel {
+    display: none;
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+  }
+  #gameOverPanel h2 {
+    font-size: 80px;
+    color: #ff4444;
+    text-shadow: 0 0 40px #ff4444;
+    letter-spacing: 4px;
+    margin-bottom: 10px;
+  }
+  #gameOverPanel .final-score {
+    font-size: 32px;
+    color: #ffdd00;
+    margin-bottom: 40px;
+    text-shadow: 0 0 16px #ffdd00;
+  }
+  #restartBtn {
+    background: #ff4444;
+    color: #fff;
+    border: none;
+    padding: 14px 40px;
+    font-size: 20px;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    letter-spacing: 3px;
+    border-radius: 6px;
+    cursor: pointer;
+    box-shadow: 0 0 20px #ff444466;
+    transition: transform 0.1s;
+  }
+  #restartBtn:hover { transform: scale(1.05); }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+<video id="webcamPreview" autoplay playsinline muted></video>
+<canvas id="poseCanvas"></canvas>
+
+<div id="hud">
+  <div class="hud-panel">
+    <div class="hud-label">Score</div>
+    <div class="hud-value accent" id="scoreVal">0</div>
+  </div>
+  <div class="hud-panel" style="text-align:center">
+    <div class="hud-label">Strikes</div>
+    <div id="strikes-display">
+      <div class="strike-dot" id="s1"></div>
+      <div class="strike-dot" id="s2"></div>
+      <div class="strike-dot" id="s3"></div>
+    </div>
+  </div>
+  <div class="hud-panel" style="text-align:center">
+    <div class="hud-label">Outs</div>
+    <div id="outs-display">
+      <div class="out-dot" id="o1"></div>
+      <div class="out-dot" id="o2"></div>
+      <div class="out-dot" id="o3"></div>
+    </div>
+  </div>
+  <div class="hud-panel">
+    <div class="hud-label">Hits</div>
+    <div class="hud-value" id="hitsVal">0</div>
+  </div>
+</div>
+
+<div id="swingMeter">
+  <div id="swingMeterLabel">PUSHUP DEPTH</div>
+  <div id="swingMeterBar"><div id="swingMeterFill"></div></div>
+</div>
+
+<div id="statusMsg"></div>
+<div id="poseStatus">POSE: INITIALIZING...</div>
+
+<div id="overlay">
+  <h1>⚾ PUSHUP BASEBALL</h1>
+  <div class="subtitle">STADIUM EDITION</div>
+  <div class="instructions">
+    Get in <span>push-up position</span> in front of your webcam.<br>
+    When the pitcher throws — do a <span>push-up</span> to swing the bat!<br>
+    Time it right to connect with the ball.<br>
+    <span>3 strikes = out &nbsp;•&nbsp; 3 outs = game over</span>
+  </div>
+  <button id="startBtn" onclick="startGame()">PLAY BALL</button>
+</div>
+
+<div id="gameOverPanel">
+  <h2>GAME OVER</h2>
+  <div class="final-score" id="finalScore">Score: 0 &nbsp;|&nbsp; Hits: 0</div>
+  <button id="restartBtn" onclick="restartGame()">PLAY AGAIN</button>
+</div>
+
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+
+<script>
+// ─── Canvas setup ────────────────────────────────────────────────────────────
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const poseCanvas = document.getElementById('poseCanvas');
+const poseCtx = poseCanvas.getContext('2d');
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ─── Game state ──────────────────────────────────────────────────────────────
+const state = {
+  phase: 'idle',   // idle | winding | pitching | outcome | gameover
+  score: 0,
+  hits: 0,
+  strikes: 0,
+  outs: 0,
+  gameActive: false,
+  windupTimer: 0,
+  windupDuration: 90,  // frames
+  ball: null,
+  batAngle: 0,        // bat swing progress 0..1
+  swinging: false,
+  swingTimer: 0,
+  hitBall: null,
+  particles: [],
+  crowdTexts: [],
+  frameCount: 0,
+  pitchSpeed: 0.018,
+  consecutiveHits: 0,
+};
+
+// ─── 3D Projection ───────────────────────────────────────────────────────────
+// Origin = home plate (batter position). Looking toward pitcher's mound (+z).
+// x = lateral, y = vertical (positive up), z = depth toward pitcher
+
+const CAM = { x: 0, y: 2.8, z: -5 }; // camera behind home plate, slightly above
+const FOV = 600; // focal length in px
+
+function project(wx, wy, wz) {
+  // relative to camera
+  const rx = wx - CAM.x;
+  const ry = wy - CAM.y;
+  const rz = wz - CAM.z;
+  if (rz <= 0.01) return null;
+  const scale = FOV / rz;
+  const sx = canvas.width / 2 + rx * scale;
+  const sy = canvas.height * 0.52 - ry * scale;
+  return { x: sx, y: sy, scale };
+}
+
+// ─── Perspective field drawing ────────────────────────────────────────────────
+function drawField() {
+  const W = canvas.width, H = canvas.height;
+
+  // Sky / night background
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, H * 0.55);
+  skyGrad.addColorStop(0, '#050a1a');
+  skyGrad.addColorStop(1, '#0a1530');
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // Distant stadium silhouette
+  drawStadiumSilhouette();
+
+  // Ground / grass
+  const groundGrad = ctx.createLinearGradient(0, H * 0.5, 0, H);
+  groundGrad.addColorStop(0, '#0d2e0d');
+  groundGrad.addColorStop(0.4, '#0a200a');
+  groundGrad.addColorStop(1, '#060f06');
+  ctx.fillStyle = groundGrad;
+  ctx.beginPath();
+  ctx.moveTo(0, H * 0.52);
+  ctx.lineTo(W, H * 0.52);
+  ctx.lineTo(W, H);
+  ctx.lineTo(0, H);
+  ctx.fill();
+
+  // Grass stripe pattern
+  drawGrassStripes();
+
+  // Infield dirt
+  drawInfieldDirt();
+
+  // Foul lines
+  drawFoulLines();
+
+  // Bases
+  drawBases();
+
+  // Pitcher's mound
+  drawPitchersMound();
+
+  // Stadium lights
+  drawStadiumLights();
+}
+
+function drawStadiumSilhouette() {
+  const W = canvas.width, H = canvas.height;
+  ctx.fillStyle = '#0a0f1e';
+  // Left stand
+  ctx.beginPath();
+  ctx.moveTo(0, H * 0.52);
+  ctx.lineTo(0, H * 0.28);
+  ctx.lineTo(W * 0.18, H * 0.22);
+  ctx.lineTo(W * 0.32, H * 0.3);
+  ctx.lineTo(W * 0.32, H * 0.52);
+  ctx.fill();
+  // Right stand
+  ctx.beginPath();
+  ctx.moveTo(W, H * 0.52);
+  ctx.lineTo(W, H * 0.28);
+  ctx.lineTo(W * 0.82, H * 0.22);
+  ctx.lineTo(W * 0.68, H * 0.3);
+  ctx.lineTo(W * 0.68, H * 0.52);
+  ctx.fill();
+  // Center stand
+  ctx.beginPath();
+  ctx.moveTo(W * 0.32, H * 0.3);
+  ctx.lineTo(W * 0.36, H * 0.16);
+  ctx.lineTo(W * 0.5, H * 0.12);
+  ctx.lineTo(W * 0.64, H * 0.16);
+  ctx.lineTo(W * 0.68, H * 0.3);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawGrassStripes() {
+  const W = canvas.width, H = canvas.height;
+  const hy = H * 0.52;
+  // draw alternating dark/light grass strips radiating from horizon
+  for (let i = 0; i < 8; i++) {
+    const t1 = i / 8;
+    const t2 = (i + 0.5) / 8;
+    const y1 = hy + (H - hy) * (t1 * t1);
+    const y2 = hy + (H - hy) * (t2 * t2);
+    ctx.fillStyle = i % 2 === 0 ? '#0d2e0d' : '#0a280a';
+    ctx.fillRect(0, y1, W, y2 - y1);
+  }
+}
+
+function drawInfieldDirt() {
+  // Diamond shape for infield dirt
+  const pts = [
+    project(0, 0, 0),      // home plate (near)
+    project(-15, 0, 45),   // 3rd base
+    project(0, 0, 90),     // 2nd base (far)
+    project(15, 0, 45),    // 1st base
+  ];
+  if (pts.some(p => !p)) return;
+  const grad = ctx.createRadialGradient(
+    canvas.width/2, canvas.height*0.52, 10,
+    canvas.width/2, canvas.height*0.52, 300
+  );
+  grad.addColorStop(0, '#6b3a1f88');
+  grad.addColorStop(1, '#3a1a0844');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  pts.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawFoulLines() {
+  const home = project(0, 0.02, 0);
+  const leftFoul = project(-80, 0.02, 80);
+  const rightFoul = project(80, 0.02, 80);
+  if (!home || !leftFoul || !rightFoul) return;
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(home.x, home.y);
+  ctx.lineTo(leftFoul.x, leftFoul.y);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(home.x, home.y);
+  ctx.lineTo(rightFoul.x, rightFoul.y);
+  ctx.stroke();
+}
+
+function drawBases() {
+  const bases = [
+    { pos: project(15, 0.05, 45), label: '1B' },
+    { pos: project(0, 0.05, 90), label: '2B' },
+    { pos: project(-15, 0.05, 45), label: '3B' },
+  ];
+  bases.forEach(b => {
+    if (!b.pos) return;
+    const sz = b.pos.scale * 1.2;
+    ctx.fillStyle = '#ffffffcc';
+    ctx.shadowColor = '#ffffff88';
+    ctx.shadowBlur = 8;
+    ctx.fillRect(b.pos.x - sz/2, b.pos.y - sz/2, sz, sz);
+    ctx.shadowBlur = 0;
+  });
+}
+
+function drawPitchersMound() {
+  const mound = project(0, 0, 60);
+  if (!mound) return;
+  const r = mound.scale * 3;
+  const grad = ctx.createRadialGradient(mound.x, mound.y, 0, mound.x, mound.y, r);
+  grad.addColorStop(0, '#7a4522');
+  grad.addColorStop(1, '#4a2210');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(mound.x, mound.y, r * 1.6, r * 0.6, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawStadiumLights() {
+  const W = canvas.width;
+  const lights = [
+    { wx: -50, wy: 35, wz: 60 },
+    { wx: 50, wy: 35, wz: 60 },
+    { wx: -70, wy: 30, wz: 100 },
+    { wx: 70, wy: 30, wz: 100 },
+  ];
+  lights.forEach(l => {
+    const p = project(l.wx, l.wy, l.wz);
+    if (!p) return;
+    // pole
+    const base = project(l.wx, 0, l.wz);
+    if (base) {
+      ctx.strokeStyle = '#223344';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(base.x, base.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+    // glow
+    const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 30);
+    grd.addColorStop(0, 'rgba(255,240,180,0.9)');
+    grd.addColorStop(0.3, 'rgba(255,230,100,0.4)');
+    grd.addColorStop(1, 'rgba(255,200,50,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 30, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fffde0';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // light cone
+    ctx.save();
+    const coneGrad = ctx.createLinearGradient(p.x, p.y, p.x, canvas.height * 0.52);
+    coneGrad.addColorStop(0, 'rgba(255,240,180,0.08)');
+    coneGrad.addColorStop(1, 'rgba(255,240,180,0)');
+    ctx.fillStyle = coneGrad;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x - 60, canvas.height * 0.52);
+    ctx.lineTo(p.x + 60, canvas.height * 0.52);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
+// ─── Pitcher drawing ──────────────────────────────────────────────────────────
+function drawPitcher(windupFraction) {
+  const bodyPos = project(0, 3, 58);
+  if (!bodyPos) return;
+  const sc = bodyPos.scale;
+
+  ctx.save();
+  ctx.translate(bodyPos.x, bodyPos.y);
+
+  const glow = Math.sin(state.frameCount * 0.05) * 0.3 + 0.7;
+
+  // body glow
+  ctx.shadowColor = `rgba(100,180,255,${glow * 0.5})`;
+  ctx.shadowBlur = 20 * sc;
+
+  const s = sc * 0.9;
+
+  // head
+  ctx.fillStyle = '#ffccaa';
+  ctx.beginPath();
+  ctx.arc(0, -4.5*s, 1.2*s, 0, Math.PI*2);
+  ctx.fill();
+
+  // uniform body
+  ctx.fillStyle = '#1a3a6a';
+  ctx.strokeStyle = '#4488ff';
+  ctx.lineWidth = s * 0.3;
+  ctx.beginPath();
+  ctx.roundRect(-1.2*s, -3.8*s, 2.4*s, 4*s, s*0.4);
+  ctx.fill();
+  ctx.stroke();
+
+  // jersey number
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${s*1.4}px Courier New`;
+  ctx.textAlign = 'center';
+  ctx.fillText('9', 0, -1.5*s);
+
+  // legs
+  ctx.fillStyle = '#102050';
+  ctx.fillRect(-1.2*s, 0.2*s, 1.0*s, 3.5*s);
+  ctx.fillRect(0.2*s, 0.2*s, 1.0*s, 3.5*s);
+
+  // pitching arm (windup animation)
+  const armAngle = windupFraction < 0.5
+    ? -Math.PI * windupFraction * 1.5        // raise arm
+    : -Math.PI * 0.75 + Math.PI * (windupFraction - 0.5) * 3; // throw forward
+  ctx.strokeStyle = '#ffccaa';
+  ctx.lineWidth = s * 0.8;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(1.2*s, -2.5*s);
+  ctx.lineTo(
+    1.2*s + Math.cos(armAngle) * 2.5*s,
+    -2.5*s + Math.sin(armAngle) * 2.5*s
+  );
+  ctx.stroke();
+
+  // glove arm (other side)
+  ctx.strokeStyle = '#8b4513';
+  ctx.lineWidth = s * 0.8;
+  ctx.beginPath();
+  ctx.moveTo(-1.2*s, -2.5*s);
+  ctx.lineTo(-1.2*s - 2*s, -1.5*s);
+  ctx.stroke();
+  // glove
+  ctx.fillStyle = '#6b3310';
+  ctx.beginPath();
+  ctx.arc(-1.2*s - 2*s, -1.5*s, s*0.9, 0, Math.PI*2);
+  ctx.fill();
+
+  // cap
+  ctx.fillStyle = '#1a3a6a';
+  ctx.beginPath();
+  ctx.ellipse(0, -5.5*s, 1.5*s, 0.7*s, 0, 0, Math.PI);
+  ctx.fill();
+  // brim
+  ctx.beginPath();
+  ctx.ellipse(0.8*s, -5.2*s, 1.2*s, 0.4*s, -0.3, 0, Math.PI);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+// ─── Ball drawing ─────────────────────────────────────────────────────────────
+const ballTrail = [];
+
+function drawBall(ball) {
+  if (!ball) return;
+  const p = project(ball.x, ball.y, ball.z);
+  if (!p) return;
+
+  const r = Math.max(3, p.scale * 0.9);
+
+  // trail
+  ballTrail.push({ x: p.x, y: p.y, r, age: 0 });
+  if (ballTrail.length > 18) ballTrail.shift();
+
+  for (let i = 0; i < ballTrail.length - 1; i++) {
+    const t = ballTrail[i];
+    const alpha = (i / ballTrail.length) * 0.7;
+    const tr = t.r * (i / ballTrail.length);
+    const grad = ctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, tr * 2.5);
+    grad.addColorStop(0, `rgba(0,255,200,${alpha * 0.8})`);
+    grad.addColorStop(0.5, `rgba(0,180,255,${alpha * 0.4})`);
+    grad.addColorStop(1, 'rgba(0,100,255,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, tr * 2.5, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  // ball glow
+  const glowR = r * 4;
+  const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glowR);
+  glow.addColorStop(0, 'rgba(255,255,200,0.5)');
+  glow.addColorStop(0.4, 'rgba(200,255,150,0.2)');
+  glow.addColorStop(1, 'rgba(100,255,100,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, glowR, 0, Math.PI*2);
+  ctx.fill();
+
+  // ball itself
+  const ballGrad = ctx.createRadialGradient(p.x - r*0.3, p.y - r*0.3, 0, p.x, p.y, r);
+  ballGrad.addColorStop(0, '#ffffff');
+  ballGrad.addColorStop(0.6, '#f0f0e0');
+  ballGrad.addColorStop(1, '#ccccaa');
+  ctx.fillStyle = ballGrad;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+  ctx.fill();
+
+  // seams
+  if (r > 5) {
+    ctx.strokeStyle = '#cc3333';
+    ctx.lineWidth = Math.max(0.5, r * 0.12);
+    ctx.beginPath();
+    ctx.arc(p.x + r*0.15, p.y, r*0.6, -0.5, 0.8);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(p.x - r*0.15, p.y, r*0.6, Math.PI - 0.8, Math.PI + 0.5);
+    ctx.stroke();
+  }
+}
+
+// ─── Hit ball arc ─────────────────────────────────────────────────────────────
+function drawHitBall(hb) {
+  if (!hb) return;
+  const p = project(hb.x, hb.y, hb.z);
+  if (!p || p.y < 0) return;
+
+  // shadow on ground
+  const shadow = project(hb.x, 0, hb.z);
+  if (shadow) {
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(shadow.x, shadow.y, shadow.scale * 0.8, shadow.scale * 0.25, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  const r = Math.max(3, p.scale * 0.6);
+  const ballGrad = ctx.createRadialGradient(p.x - r*0.3, p.y - r*0.3, 0, p.x, p.y, r);
+  ballGrad.addColorStop(0, '#ffffff');
+  ballGrad.addColorStop(1, '#ccccaa');
+  ctx.fillStyle = ballGrad;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r, 0, Math.PI*2);
+  ctx.fill();
+}
+
+// ─── Bat drawing ─────────────────────────────────────────────────────────────
+function drawBat(swingFraction) {
+  if (swingFraction <= 0) return;
+  const W = canvas.width, H = canvas.height;
+
+  ctx.save();
+  // bat pivot = bottom-right area (right-hand batter)
+  const pivotX = W * 0.72;
+  const pivotY = H * 0.78;
+
+  // swing angle: starts at ~-80deg (upright), sweeps to ~20deg (follow through)
+  const startAngle = -Math.PI * 0.55;
+  const endAngle = Math.PI * 0.12;
+  const angle = startAngle + (endAngle - startAngle) * swingFraction;
+
+  ctx.translate(pivotX, pivotY);
+  ctx.rotate(angle);
+
+  const batLen = H * 0.45;
+  const handleLen = batLen * 0.35;
+
+  // handle
+  const handleGrad = ctx.createLinearGradient(0, 0, 0, -handleLen);
+  handleGrad.addColorStop(0, '#5a3010');
+  handleGrad.addColorStop(1, '#8b5020');
+  ctx.strokeStyle = handleGrad;
+  ctx.lineWidth = 8;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, -handleLen);
+  ctx.stroke();
+
+  // barrel
+  const barrelGrad = ctx.createLinearGradient(0, -handleLen, 0, -batLen);
+  barrelGrad.addColorStop(0, '#8b5020');
+  barrelGrad.addColorStop(0.5, '#c07830');
+  barrelGrad.addColorStop(1, '#a06020');
+  ctx.strokeStyle = barrelGrad;
+  ctx.lineWidth = 22;
+  ctx.beginPath();
+  ctx.moveTo(0, -handleLen);
+  ctx.lineTo(0, -batLen);
+  ctx.stroke();
+
+  // highlight
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(-4, -handleLen - 10);
+  ctx.lineTo(-4, -batLen + 20);
+  ctx.stroke();
+
+  // swing whoosh
+  if (swingFraction > 0.1 && swingFraction < 0.9) {
+    const whooshGrad = ctx.createLinearGradient(0, -batLen, 0, 0);
+    whooshGrad.addColorStop(0, `rgba(0,200,255,${0.4 * (1 - swingFraction)})`);
+    whooshGrad.addColorStop(1, 'rgba(0,200,255,0)');
+    ctx.strokeStyle = whooshGrad;
+    ctx.lineWidth = 30;
+    ctx.lineCap = 'round';
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(15, -batLen * 0.3);
+    ctx.lineTo(15, -batLen * 0.9);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.restore();
+}
+
+// ─── Particles ────────────────────────────────────────────────────────────────
+function spawnHitParticles(screenX, screenY) {
+  const colors = ['#ffdd00', '#ff8800', '#ffffff', '#00ffcc', '#ff4444'];
+  for (let i = 0; i < 40; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 3 + Math.random() * 8;
+    state.particles.push({
+      x: screenX, y: screenY,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 4,
+      life: 1,
+      decay: 0.02 + Math.random() * 0.03,
+      r: 2 + Math.random() * 5,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    });
+  }
+}
+
+function updateParticles() {
+  state.particles = state.particles.filter(p => p.life > 0);
+  state.particles.forEach(p => {
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.25;
+    p.life -= p.decay;
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  });
+  ctx.globalAlpha = 1;
+}
+
+// ─── Crowd texts ─────────────────────────────────────────────────────────────
+const crowdMessages = ['HOME RUN!', 'NICE HIT!', 'CRACK!', 'GOING...GONE!', 'YEEAH!', 'AMAZING!', 'OUT OF THE PARK!'];
+
+function spawnCrowdText(msg, color) {
+  state.crowdTexts.push({
+    text: msg,
+    x: canvas.width / 2 + (Math.random() - 0.5) * 200,
+    y: canvas.height * 0.35,
+    vy: -2,
+    life: 1,
+    decay: 0.012,
+    color: color || '#ffdd00',
+    size: 42 + Math.random() * 20,
+  });
+}
+
+function drawCrowdTexts() {
+  state.crowdTexts = state.crowdTexts.filter(t => t.life > 0);
+  state.crowdTexts.forEach(t => {
+    t.y += t.vy;
+    t.vy *= 0.97;
+    t.life -= t.decay;
+    ctx.save();
+    ctx.globalAlpha = t.life;
+    ctx.font = `bold ${t.size}px Courier New`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = t.color;
+    ctx.shadowColor = t.color;
+    ctx.shadowBlur = 20;
+    ctx.fillText(t.text, t.x, t.y);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  });
+}
+
+// ─── Status message ───────────────────────────────────────────────────────────
+let statusTimeout = null;
+function showStatus(msg, color, duration) {
+  const el = document.getElementById('statusMsg');
+  el.textContent = msg;
+  el.style.color = color;
+  el.style.opacity = '1';
+  if (statusTimeout) clearTimeout(statusTimeout);
+  statusTimeout = setTimeout(() => { el.style.opacity = '0'; }, duration || 1200);
+}
+
+// ─── HUD update ───────────────────────────────────────────────────────────────
+function updateHUD() {
+  document.getElementById('scoreVal').textContent = state.score;
+  document.getElementById('hitsVal').textContent = state.hits;
+  ['s1','s2','s3'].forEach((id, i) => {
+    document.getElementById(id).className = 'strike-dot' + (i < state.strikes ? ' filled' : '');
+  });
+  ['o1','o2','o3'].forEach((id, i) => {
+    document.getElementById(id).className = 'out-dot' + (i < state.outs ? ' filled' : '');
+  });
+}
+
+// ─── Push-up detection ────────────────────────────────────────────────────────
+const pose_state = {
+  noseY: null,
+  baseline: null,
+  minY: null,
+  phase: 'idle',   // idle | down | up
+  repDetected: false,
+  depthFraction: 0,
+};
+
+const NOSE_DOWN_THRESH = 0.08;   // fraction of frame height
+const NOSE_UP_THRESH = 0.04;
+
+function processPoseLandmarks(landmarks) {
+  const nose = landmarks[0];
+  if (!nose) return;
+  const ny = nose.y; // normalized 0..1
+
+  if (pose_state.baseline === null) {
+    pose_state.baseline = ny;
+    pose_state.minY = ny;
+  }
+
+  // Update running baseline when at top (baseline = highest nose = smallest y)
+  if (ny < pose_state.baseline) {
+    pose_state.baseline = ny * 0.3 + pose_state.baseline * 0.7;
+  }
+  pose_state.noseY = ny;
+
+  const drop = ny - pose_state.baseline; // positive = nose dropped (down)
+  pose_state.depthFraction = Math.min(1, Math.max(0, drop / 0.18));
+
+  // Update swing meter
+  document.getElementById('swingMeterFill').style.width = (pose_state.depthFraction * 100) + '%';
+
+  // State machine
+  if (pose_state.phase === 'idle' || pose_state.phase === 'up') {
+    if (drop > NOSE_DOWN_THRESH) {
+      pose_state.phase = 'down';
+      pose_state.minY = ny;
+    }
+  } else if (pose_state.phase === 'down') {
+    if (ny > pose_state.minY) pose_state.minY = ny; // track lowest nose (highest y)
+    const rise = pose_state.minY - ny; // how much we've come back up
+    if (drop < NOSE_UP_THRESH && rise > NOSE_DOWN_THRESH * 0.5) {
+      pose_state.phase = 'up';
+      // rep completed!
+      onPushUpRep();
+    }
+  }
+}
+
+function onPushUpRep() {
+  if (!state.gameActive) return;
+  if (state.phase === 'pitching') {
+    triggerSwing();
+  }
+}
+
+// ─── Swing & hit logic ────────────────────────────────────────────────────────
+function triggerSwing() {
+  if (state.swinging) return;
+  state.swinging = true;
+  state.swingTimer = 0;
+  ballTrail.length = 0;
+
+  // Check if ball is in hit zone
+  const ball = state.ball;
+  if (ball) {
+    const hitWindow = ball.z < 12 && ball.z > -2;
+    if (hitWindow) {
+      onHit(ball);
+    } else {
+      // miss — ball too far or past
+      setTimeout(() => {
+        if (state.phase === 'pitching') {
+          onMiss();
+        }
+      }, 400);
+    }
+  } else {
+    onMiss();
+  }
+}
+
+function onHit(ball) {
+  state.hits++;
+  state.consecutiveHits++;
+  const bonus = Math.min(state.consecutiveHits, 5);
+  const pts = 10 * bonus;
+  state.score += pts;
+  state.strikes = 0;
+
+  const p = project(ball.x, ball.y, ball.z);
+  if (p) spawnHitParticles(p.x, p.y);
+
+  const msg = crowdMessages[Math.floor(Math.random() * crowdMessages.length)];
+  spawnCrowdText(msg, '#ffdd00');
+  if (bonus >= 3) spawnCrowdText(`x${bonus} COMBO!`, '#ff8800');
+  showStatus('CRACK!', '#ffdd00', 1000);
+
+  // launch hit ball arc
+  const exitAngle = (Math.random() - 0.5) * 0.6; // left-right
+  state.hitBall = {
+    x: ball.x, y: ball.y, z: ball.z,
+    vx: Math.sin(exitAngle) * 1.2,
+    vy: 1.4 + Math.random() * 0.6,
+    vz: 2.5 + Math.random() * 1.0,
+  };
+  state.ball = null;
+  state.phase = 'outcome';
+
+  updateHUD();
+  setTimeout(nextPitch, 2800);
+}
+
+function onMiss() {
+  state.consecutiveHits = 0;
+  state.strikes++;
+  showStatus('STRIKE!', '#ff4444', 1000);
+  spawnCrowdText('STRIKE!', '#ff4444');
+  state.ball = null;
+  state.phase = 'outcome';
+  updateHUD();
+
+  if (state.strikes >= 3) {
+    state.strikes = 0;
+    state.outs++;
+    showStatus('OUT!', '#ff8800', 1400);
+    spawnCrowdText('OUT!', '#ff8800');
+    updateHUD();
+    if (state.outs >= 3) {
+      setTimeout(gameOver, 1600);
+      return;
+    }
+  }
+  setTimeout(nextPitch, 1800);
+}
+
+// ─── Pitch ball missed (flew past without swing) ──────────────────────────────
+function onBallPassedBatter() {
+  if (state.phase !== 'pitching') return;
+  state.consecutiveHits = 0;
+  state.strikes++;
+  showStatus('STRIKE!', '#ff4444', 1000);
+  spawnCrowdText('STRIKE!', '#ff4444');
+  state.ball = null;
+  state.phase = 'outcome';
+  updateHUD();
+
+  if (state.strikes >= 3) {
+    state.strikes = 0;
+    state.outs++;
+    showStatus('OUT!', '#ff8800', 1400);
+    spawnCrowdText('OUT!', '#ff8800');
+    updateHUD();
+    if (state.outs >= 3) {
+      setTimeout(gameOver, 1600);
+      return;
+    }
+  }
+  setTimeout(nextPitch, 1800);
+}
+
+// ─── Pitch sequencing ─────────────────────────────────────────────────────────
+function nextPitch() {
+  if (!state.gameActive) return;
+  state.hitBall = null;
+  state.swinging = false;
+  state.swingTimer = 0;
+  ballTrail.length = 0;
+  state.windupTimer = 0;
+  state.phase = 'winding';
+  // Speed up slightly over time
+  state.pitchSpeed = 0.018 + (state.hits * 0.0005);
+}
+
+function launchPitch() {
+  // pick random pitch location (slightly off-center)
+  const dx = (Math.random() - 0.5) * 2;
+  const dy = (Math.random() - 0.5) * 0.6 + 0.3;
+  state.ball = { x: dx, y: 4.5 + dy, z: 56 };
+  state.phase = 'pitching';
+}
+
+// ─── Game flow ────────────────────────────────────────────────────────────────
+function startGame() {
+  document.getElementById('overlay').style.display = 'none';
+  state.gameActive = true;
+  state.score = 0;
+  state.hits = 0;
+  state.strikes = 0;
+  state.outs = 0;
+  state.consecutiveHits = 0;
+  state.hitBall = null;
+  state.ball = null;
+  state.particles = [];
+  state.crowdTexts = [];
+  ballTrail.length = 0;
+  updateHUD();
+  nextPitch();
+  initPose();
+}
+
+function gameOver() {
+  state.gameActive = false;
+  state.phase = 'gameover';
+  document.getElementById('finalScore').textContent =
+    `Score: ${state.score}  |  Hits: ${state.hits}`;
+  const panel = document.getElementById('gameOverPanel');
+  panel.style.display = 'flex';
+}
+
+function restartGame() {
+  document.getElementById('gameOverPanel').style.display = 'none';
+  startGame();
+}
+
+// ─── MediaPipe Pose ───────────────────────────────────────────────────────────
+let poseInitialized = false;
+let mpCamera = null;
+
+function initPose() {
+  if (poseInitialized) return;
+  poseInitialized = true;
+
+  const video = document.getElementById('webcamPreview');
+  const poseStatusEl = document.getElementById('poseStatus');
+
+  const mpPose = new Pose({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+  });
+
+  mpPose.setOptions({
+    modelComplexity: 0,
+    smoothLandmarks: true,
+    enableSegmentation: false,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5,
+  });
+
+  mpPose.onResults((results) => {
+    poseCtx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
+
+    if (results.poseLandmarks) {
+      poseStatusEl.textContent = 'POSE: TRACKING ✓';
+      poseStatusEl.style.color = '#00ffcc';
+      processPoseLandmarks(results.poseLandmarks);
+
+      // Draw skeleton on overlay
+      drawPoseSkeleton(results.poseLandmarks);
+    } else {
+      poseStatusEl.textContent = 'POSE: NO BODY DETECTED';
+      poseStatusEl.style.color = '#ff8800';
+    }
+  });
+
+  mpCamera = new Camera(video, {
+    onFrame: async () => {
+      await mpPose.send({ image: video });
+    },
+    width: 320,
+    height: 240,
+  });
+
+  mpCamera.start().then(() => {
+    poseStatusEl.textContent = 'POSE: CAMERA ON';
+    poseStatusEl.style.color = '#ffdd00';
+    // Set poseCanvas to same size as preview
+    poseCanvas.width = 180;
+    poseCanvas.height = 135;
+  }).catch(err => {
+    poseStatusEl.textContent = 'POSE: CAM ERROR';
+    poseStatusEl.style.color = '#ff4444';
+    console.error('Camera error:', err);
+  });
+}
+
+function drawPoseSkeleton(landmarks) {
+  const pw = poseCanvas.width, ph = poseCanvas.height;
+  poseCtx.clearRect(0, 0, pw, ph);
+
+  // key connections (mirrored for preview)
+  const connections = [
+    [11,12],[11,13],[13,15],[12,14],[14,16],
+    [11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]
+  ];
+
+  poseCtx.strokeStyle = '#00ffcc';
+  poseCtx.lineWidth = 1.5;
+  connections.forEach(([a, b]) => {
+    const la = landmarks[a], lb = landmarks[b];
+    if (!la || !lb || la.visibility < 0.3 || lb.visibility < 0.3) return;
+    poseCtx.beginPath();
+    poseCtx.moveTo((1 - la.x) * pw, la.y * ph);
+    poseCtx.lineTo((1 - lb.x) * pw, lb.y * ph);
+    poseCtx.stroke();
+  });
+
+  // key points
+  [0,11,12,13,14,15,16,23,24].forEach(i => {
+    const lm = landmarks[i];
+    if (!lm || lm.visibility < 0.3) return;
+    poseCtx.fillStyle = i === 0 ? '#ffdd00' : '#00ffcc';
+    poseCtx.beginPath();
+    poseCtx.arc((1 - lm.x) * pw, lm.y * ph, 3, 0, Math.PI*2);
+    poseCtx.fill();
+  });
+}
+
+// ─── Main render loop ─────────────────────────────────────────────────────────
+function render() {
+  state.frameCount++;
+  const W = canvas.width, H = canvas.height;
+
+  ctx.clearRect(0, 0, W, H);
+  drawField();
+
+  // Update windup
+  if (state.phase === 'winding') {
+    state.windupTimer++;
+    const frac = state.windupTimer / state.windupDuration;
+    drawPitcher(frac);
+    if (state.windupTimer >= state.windupDuration) {
+      launchPitch();
+    }
+  } else {
+    drawPitcher(state.phase === 'pitching' ? 1 : 0.3);
+  }
+
+  // Update ball
+  if (state.phase === 'pitching' && state.ball) {
+    state.ball.z -= state.pitchSpeed * 60;
+    // slight arc
+    state.ball.y -= 0.004;
+    drawBall(state.ball);
+
+    // Ball reached batter zone
+    if (state.ball.z < -3) {
+      onBallPassedBatter();
+    }
+  } else if (state.phase === 'pitching' && !state.ball) {
+    // ball just got hit/cleared
+  }
+
+  // Hit ball arc
+  if (state.hitBall) {
+    state.hitBall.x += state.hitBall.vx;
+    state.hitBall.y += state.hitBall.vy;
+    state.hitBall.z += state.hitBall.vz;
+    state.hitBall.vy -= 0.045; // gravity
+    drawHitBall(state.hitBall);
+    if (state.hitBall.y < 0) { state.hitBall.vy *= -0.35; state.hitBall.y = 0; }
+    if (state.hitBall.z > 300) state.hitBall = null;
+  }
+
+  // Bat swing
+  if (state.swinging) {
+    state.swingTimer++;
+    const sf = Math.min(1, state.swingTimer / 22);
+    drawBat(sf);
+    if (sf >= 1) {
+      // hold a bit then reset
+      if (state.swingTimer > 40) {
+        state.swinging = false;
+        state.swingTimer = 0;
+      }
+    }
+  }
+
+  // Particles
+  updateParticles();
+
+  // Crowd texts
+  drawCrowdTexts();
+
+  // Ambient flicker effect
+  if (state.frameCount % 180 === 0) {
+    // subtle flash
+    ctx.fillStyle = 'rgba(255,240,180,0.03)';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Vignette
+  const vignette = ctx.createRadialGradient(W/2, H/2, H*0.3, W/2, H/2, H*0.8);
+  vignette.addColorStop(0, 'rgba(0,0,0,0)');
+  vignette.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, W, H);
+
+  requestAnimationFrame(render);
+}
+
+// ─── Keyboard fallback (spacebar to swing for testing) ───────────────────────
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (state.phase === 'pitching') triggerSwing();
+  }
+  if (e.code === 'Enter' && !state.gameActive) {
+    startGame();
+  }
+});
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>
