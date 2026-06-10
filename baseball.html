@@ -321,17 +321,18 @@ const state = {
   outs: 0,
   gameActive: false,
   windupTimer: 0,
-  windupDuration: 90,  // frames
+  windupDuration: 130,  // frames — longer windup so you can get ready
   ball: null,
-  batAngle: 0,        // bat swing progress 0..1
+  batAngle: 0,
   swinging: false,
   swingTimer: 0,
   hitBall: null,
   particles: [],
   crowdTexts: [],
   frameCount: 0,
-  pitchSpeed: 0.018,
+  pitchSpeed: 0.010,   // slower ball
   consecutiveHits: 0,
+  inHitZone: false,
 };
 
 // ─── 3D Projection ───────────────────────────────────────────────────────────
@@ -359,10 +360,23 @@ function drawField() {
 
   // Sky / night background
   const skyGrad = ctx.createLinearGradient(0, 0, 0, H * 0.55);
-  skyGrad.addColorStop(0, '#050a1a');
-  skyGrad.addColorStop(1, '#0a1530');
+  skyGrad.addColorStop(0, '#020612');
+  skyGrad.addColorStop(1, '#071020');
   ctx.fillStyle = skyGrad;
   ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  ctx.fillStyle = '#ffffff';
+  const starSeed = 42;
+  for (let i = 0; i < 120; i++) {
+    const sx = ((Math.sin(i * 127.1 + starSeed) * 0.5 + 0.5)) * W;
+    const sy = ((Math.sin(i * 311.7 + starSeed) * 0.5 + 0.5)) * H * 0.45;
+    const sr = 0.5 + (Math.sin(i * 91.3) * 0.5 + 0.5) * 1.2;
+    const twinkle = 0.4 + 0.6 * Math.abs(Math.sin(state.frameCount * 0.03 + i));
+    ctx.globalAlpha = twinkle * 0.7;
+    ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
 
   // Distant stadium silhouette
   drawStadiumSilhouette();
@@ -401,32 +415,55 @@ function drawField() {
 
 function drawStadiumSilhouette() {
   const W = canvas.width, H = canvas.height;
-  ctx.fillStyle = '#0a0f1e';
+
+  // Crowd glow behind stands
+  const crowdGlow = ctx.createLinearGradient(0, H*0.12, 0, H*0.52);
+  crowdGlow.addColorStop(0, 'rgba(255,220,100,0.07)');
+  crowdGlow.addColorStop(1, 'rgba(255,220,100,0)');
+  ctx.fillStyle = crowdGlow;
+  ctx.fillRect(0, H*0.12, W, H*0.4);
+
+  ctx.fillStyle = '#080d1a';
   // Left stand
   ctx.beginPath();
   ctx.moveTo(0, H * 0.52);
-  ctx.lineTo(0, H * 0.28);
-  ctx.lineTo(W * 0.18, H * 0.22);
-  ctx.lineTo(W * 0.32, H * 0.3);
+  ctx.lineTo(0, H * 0.26);
+  ctx.lineTo(W * 0.18, H * 0.20);
+  ctx.lineTo(W * 0.32, H * 0.28);
   ctx.lineTo(W * 0.32, H * 0.52);
   ctx.fill();
   // Right stand
   ctx.beginPath();
   ctx.moveTo(W, H * 0.52);
-  ctx.lineTo(W, H * 0.28);
-  ctx.lineTo(W * 0.82, H * 0.22);
-  ctx.lineTo(W * 0.68, H * 0.3);
+  ctx.lineTo(W, H * 0.26);
+  ctx.lineTo(W * 0.82, H * 0.20);
+  ctx.lineTo(W * 0.68, H * 0.28);
   ctx.lineTo(W * 0.68, H * 0.52);
   ctx.fill();
   // Center stand
   ctx.beginPath();
-  ctx.moveTo(W * 0.32, H * 0.3);
-  ctx.lineTo(W * 0.36, H * 0.16);
-  ctx.lineTo(W * 0.5, H * 0.12);
-  ctx.lineTo(W * 0.64, H * 0.16);
-  ctx.lineTo(W * 0.68, H * 0.3);
+  ctx.moveTo(W * 0.32, H * 0.28);
+  ctx.lineTo(W * 0.36, H * 0.14);
+  ctx.lineTo(W * 0.5, H * 0.10);
+  ctx.lineTo(W * 0.64, H * 0.14);
+  ctx.lineTo(W * 0.68, H * 0.28);
   ctx.closePath();
   ctx.fill();
+
+  // Crowd dots (tiny colored seats)
+  const rng = (n) => Math.abs(Math.sin(n * 127.1 + 9));
+  for (let i = 0; i < 200; i++) {
+    const side = rng(i) < 0.4 ? 0 : rng(i) < 0.7 ? 1 : 2;
+    let cx, cy;
+    if (side === 0) { cx = rng(i*3)*W*0.28; cy = H*(0.22+rng(i*7)*0.28); }
+    else if (side === 1) { cx = W*0.72+rng(i*3)*W*0.28; cy = H*(0.22+rng(i*7)*0.28); }
+    else { cx = W*0.36+rng(i*3)*W*0.28; cy = H*(0.11+rng(i*7)*0.16); }
+    const colors = ['#ff6666','#66aaff','#ffdd66','#aaffaa','#ffffff','#ff99cc'];
+    ctx.fillStyle = colors[Math.floor(rng(i*11)*colors.length)];
+    ctx.globalAlpha = 0.25 + rng(i*17)*0.2;
+    ctx.beginPath(); ctx.arc(cx, cy, 2, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
 }
 
 function drawGrassStripes() {
@@ -914,8 +951,8 @@ const pose_state = {
   depthFraction: 0,
 };
 
-const NOSE_DOWN_THRESH = 0.08;   // fraction of frame height
-const NOSE_UP_THRESH = 0.04;
+const NOSE_DOWN_THRESH = 0.05;   // more forgiving — less movement needed
+const NOSE_UP_THRESH = 0.025;
 
 function processPoseLandmarks(landmarks) {
   const nose = landmarks[0];
@@ -973,7 +1010,7 @@ function triggerSwing() {
   // Check if ball is in hit zone
   const ball = state.ball;
   if (ball) {
-    const hitWindow = ball.z < 12 && ball.z > -2;
+    const hitWindow = ball.z < 22 && ball.z > -4; // much bigger window
     if (hitWindow) {
       onHit(ball);
     } else {
@@ -1078,7 +1115,7 @@ function nextPitch() {
   state.windupTimer = 0;
   state.phase = 'winding';
   // Speed up slightly over time
-  state.pitchSpeed = 0.018 + (state.hits * 0.0005);
+  state.pitchSpeed = 0.010 + (state.hits * 0.0002); // stays slow
 }
 
 function launchPitch() {
@@ -1237,11 +1274,35 @@ function render() {
   // Update ball
   if (state.phase === 'pitching' && state.ball) {
     state.ball.z -= state.pitchSpeed * 60;
-    // slight arc
     state.ball.y -= 0.004;
     drawBall(state.ball);
 
-    // Ball reached batter zone
+    // Hit zone indicator — flash green ring when ball is in range
+    state.inHitZone = state.ball.z < 22 && state.ball.z > -4;
+    if (state.inHitZone) {
+      const pulse = 0.5 + 0.5 * Math.sin(state.frameCount * 0.4);
+      ctx.save();
+      ctx.strokeStyle = `rgba(0,255,120,${0.5 + pulse * 0.5})`;
+      ctx.lineWidth = 4 + pulse * 4;
+      ctx.shadowColor = '#00ff80';
+      ctx.shadowBlur = 20;
+      ctx.beginPath();
+      ctx.arc(W / 2, H * 0.72, 60 + pulse * 12, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+      ctx.restore();
+      // SWING NOW text
+      ctx.save();
+      ctx.font = `bold ${Math.floor(H * 0.06)}px Courier New`;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(0,255,120,${0.7 + pulse * 0.3})`;
+      ctx.shadowColor = '#00ff80';
+      ctx.shadowBlur = 20;
+      ctx.fillText('SWING NOW!', W / 2, H * 0.88);
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
     if (state.ball.z < -3) {
       onBallPassedBatter();
     }
