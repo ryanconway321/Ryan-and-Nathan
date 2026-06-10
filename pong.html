@@ -52,8 +52,8 @@ let phase = 'start';
 let scores = [0, 0];
 let winner = null;
 let lastScored = null;
-let p1 = { x:0, y:0 };
-let p2 = { x:0, y:0 };
+let p1 = { x:0, y:0, cy: 0 };
+let p2 = { x:0, y:0, cy: 0 };
 let ball = { x:0, y:0, z:AD/2, vx:3, vy:2, vz:9 };
 let trail = [];
 let powerUp = null;
@@ -93,7 +93,7 @@ function serve() {
 
 function resetGame() {
   scores = [0,0]; winner = null; lastScored = null;
-  p1 = { x:0, y:0 }; p2 = { x:0, y:0 };
+  p1 = { x:0, y:0, cy:H/2 }; p2 = { x:0, y:0, cy:H/2 };
   phase = 'start'; effects = [];
   powerUp = null;
 }
@@ -116,6 +116,10 @@ function update() {
   p1.y = Math.max(-AH+PAD_H/2, Math.min(AH-PAD_H/2, p1.y));
   p2.x = Math.max(-AW+PAD_W/2, Math.min(AW-PAD_W/2, p2.x));
   p2.y = Math.max(-AH+PAD_H/2, Math.min(AH-PAD_H/2, p2.y));
+  // Classic 2D screen coords (clamped)
+  const PH2 = 120;
+  p1.cy = Math.max(PH2/2, Math.min(H - PH2/2, H/2 - (p1.y/AH)*(H/2 - PH2/2)));
+  p2.cy = Math.max(PH2/2, Math.min(H - PH2/2, H/2 - (p2.y/AH)*(H/2 - PH2/2)));
 
   // Ball
   ball.x += ball.vx; ball.y += ball.vy; ball.z += ball.vz;
@@ -128,7 +132,7 @@ function update() {
 
   // Paddle hit P1 (z ≈ 0)
   if (ball.vz < 0 && ball.z - BALL_R <= 0 && ball.z > -40) {
-    if (Math.abs(ball.x - p1.x) < PAD_W/2 + BALL_R && Math.abs(ball.y - p1.y) < PAD_H/2 + BALL_R) {
+    if (Math.abs(ball.y - p1.y) < PAD_H/2 + BALL_R) {
       const dx = (ball.x - p1.x) / (PAD_W/2);
       const dy = (ball.y - p1.y) / (PAD_H/2);
       const spd = Math.min(Math.hypot(ball.vx,ball.vy,ball.vz)*1.06, 22);
@@ -140,7 +144,7 @@ function update() {
   }
   // Paddle hit P2 (z ≈ AD)
   if (ball.vz > 0 && ball.z + BALL_R >= AD && ball.z < AD+40) {
-    if (Math.abs(ball.x - p2.x) < PAD_W/2 + BALL_R && Math.abs(ball.y - p2.y) < PAD_H/2 + BALL_R) {
+    if (Math.abs(ball.y - p2.y) < PAD_H/2 + BALL_R) {
       const dx = (ball.x - p2.x) / (PAD_W/2);
       const dy = (ball.y - p2.y) / (PAD_H/2);
       const spd = Math.min(Math.hypot(ball.vx,ball.vy,ball.vz)*1.06, 22);
@@ -422,7 +426,7 @@ function drawClassic() {
 
   // Ball trail
   trail.forEach((t,i) => {
-    const tx = W/2 + (t.x/AW)*(W/2-30);
+    const tx = 36 + (t.z/AD)*(W-72);
     const ty = H/2 - (t.y/AH)*(H/2-20);
     const a = (i/trail.length)*0.4;
     ctx.beginPath(); ctx.arc(tx,ty,BALL_R*(i/trail.length)*0.8,0,Math.PI*2);
@@ -431,7 +435,7 @@ function drawClassic() {
 
   // Ball
   if (phase==='playing'||phase==='scored') {
-    const bx = W/2 + (ball.x/AW)*(W/2-30);
+    const bx = 36 + (ball.z/AD)*(W-72);
     const by = H/2 - (ball.y/AH)*(H/2-20);
     const grd = ctx.createRadialGradient(bx,by,0,bx,by,BALL_R*3);
     grd.addColorStop(0,'rgba(99,202,255,0.5)'); grd.addColorStop(1,'rgba(99,202,255,0)');
@@ -439,15 +443,18 @@ function drawClassic() {
     ctx.beginPath(); ctx.arc(bx,by,BALL_R,0,Math.PI*2); ctx.fillStyle='#fff'; ctx.fill();
   }
 
-  // Paddles as vertical bars
+  // Paddles
+  const PW = 16, PH = 120;
   function drawCPad(player, color) {
-    const p = player===0?p1:p2;
-    const px = player===0 ? 24 : W-24-14;
-    const py = H/2 - (p.y/AH)*(H/2-PAD_H/2) - PAD_H/2;
-    const grd = ctx.createRadialGradient(px+7,py+PAD_H/2,0,px+7,py+PAD_H/2,PAD_H);
-    grd.addColorStop(0,color+'55'); grd.addColorStop(1,color+'00');
-    ctx.fillStyle=grd; ctx.fillRect(px-PAD_H/2,py,14+PAD_H,PAD_H);
-    ctx.fillStyle=color; ctx.beginPath(); ctx.roundRect(px,py,14,PAD_H,5); ctx.fill();
+    const py = player===0 ? p1.cy : p2.cy;
+    const px = player===0 ? 20 : W - 20 - PW;
+    const top = Math.max(0, Math.min(H - PH, py - PH/2));
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.roundRect(px, top, PW, PH, 6); ctx.fill();
+    // glow
+    const grd = ctx.createRadialGradient(px+PW/2, top+PH/2, 0, px+PW/2, top+PH/2, PH);
+    grd.addColorStop(0, color+'44'); grd.addColorStop(1, color+'00');
+    ctx.fillStyle = grd; ctx.fillRect(px-PH/2, top, PW+PH, PH);
   }
   drawCPad(0, COLORS.p1); drawCPad(1, COLORS.p2);
 
