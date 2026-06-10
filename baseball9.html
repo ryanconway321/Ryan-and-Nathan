@@ -30,7 +30,7 @@ const ROSTER = [
 ];
 
 // ─── SAVE ──────────────────────────────────────────────────────────────────
-let save = JSON.parse(localStorage.getItem('b9_save') || 'null') || { coins:0, unlocked:[1,2] };
+let save = JSON.parse(localStorage.getItem('b9_save') || 'null') || { coins:0, unlocked:[1,2,5] };
 const persist = () => localStorage.setItem('b9_save', JSON.stringify(save));
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────
