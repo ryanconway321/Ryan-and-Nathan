@@ -233,7 +233,7 @@ function startLevel(id){
   const lv=LEVELS[id];
   score=[0,0]; timeLeft=lv.time; frames=0; gameover=false; goalFlash=0;
   parts=[]; crowd.forEach(c=>c.jy=0);
-  buildBG(lv.col+'22');
+  buildBG(lv.col);
   resetPos(id);
   G.screen= id===0?'tutorial':'game';
   if(id===0) initTutorial();
