@@ -173,7 +173,7 @@ function updatePlayer(p, up,down,left,right,kick){
     const d=Math.hypot(bx,by);
     if(d<P_R+BALL_R+18){
       const nx=bx/d, ny=by/d;
-      ball.vx=nx*16+p.vx*.6; ball.vy=ny*16-8+p.vy*.4;
+      ball.vx=nx*20+p.vx*.7; ball.vy=ny*20-10+p.vy*.5;
       ball.spin=p.vx*.4;
       p.kickCooldown=22;
       spawnP(ball.x,ball.y,['#fff','#ffcc00','#ff8800'],10,6);
@@ -300,6 +300,11 @@ function updateBall(){
   // Ground
   if(ball.y+BALL_R>=GY){ ball.y=GY-BALL_R; ball.vy*=-.6; ball.vx*=.82; if(Math.abs(ball.vy)<1.5)ball.vy=0; }
 
+  // Goal detection FIRST (before walls bounce the ball back)
+  const inGoalY = ball.y+BALL_R>GOAL_Y && ball.y-BALL_R<GY+10;
+  if(ball.x-BALL_R<=0 && inGoalY){ triggerGoal(1); return; }
+  if(ball.x+BALL_R>=W && inGoalY){ triggerGoal(0); return; }
+
   // Walls (excluding goal openings)
   if(ball.x-BALL_R<GOAL_W && !(ball.y+BALL_R>GOAL_Y && ball.y-BALL_R<GY)){
     ball.x=GOAL_W+BALL_R; ball.vx*=-.65;
@@ -309,10 +314,6 @@ function updateBall(){
   }
   if(ball.x-BALL_R<0){ ball.x=BALL_R; ball.vx*=-.65; }
   if(ball.x+BALL_R>W){ ball.x=W-BALL_R; ball.vx*=-.65; }
-
-  // Goal detection
-  if(ball.x+BALL_R<GOAL_W && ball.y+BALL_R>GOAL_Y && ball.y-BALL_R<GY+10) triggerGoal(1);
-  if(ball.x-BALL_R>W-GOAL_W && ball.y+BALL_R>GOAL_Y && ball.y-BALL_R<GY+10) triggerGoal(0);
 }
 
 function triggerGoal(team){
