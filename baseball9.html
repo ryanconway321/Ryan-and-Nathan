@@ -400,6 +400,9 @@ function throwBall(type, isAIPitching){
   G.pitchLabel=def.label.split(' ')[0];
   const batter=currentBatter(!isAIPitching);
   initRing(batter);
+  // Safety: if ball somehow gets stuck, force reset after 6 seconds
+  const safeBall=ball;
+  setTimeout(()=>{ if(ball===safeBall&&!ball.done){ ball.done=true; timingRing&&(timingRing.active=false); setTimeout(()=>resetAtBat(),200); } },6000);
   if(!isAIPitching){ // AI is batting
     const delay=400+Math.random()*500;
     setTimeout(()=>aiSwingDecision(inZone,batter),delay);
