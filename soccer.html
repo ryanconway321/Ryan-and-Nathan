@@ -245,9 +245,9 @@ function triggerGoal(team){
   crowd.forEach(c=>c.jy=-30-Math.random()*20);
   [p1,p2][team].cel=200;
   setTimeout(()=>{
-    if(G.screen==='game'||G.screen==='tutorial'){
+    if(G.screen==='game'||G.screen==='tutorial'||G.screen==='twoplayer'){
       goalFlash=0;
-      const lv=LEVELS[curLevel];
+      if(G.screen==='twoplayer'){ resetPos(1); return; }
       if(timeLeft<=0){ endGame(); return; }
       resetPos(curLevel);
     }
@@ -589,8 +589,8 @@ function loop(){
   } else if(G.screen==='levels'){
     drawLevelSelect();
   } else if(G.screen==='tutorial'){
-    updateTutorial();drawTutorial();drawP();if(p1)drawPlayer(p1);drawBall();
-    if(goalFlash>0){goalFlash--;drawGoalOverlay();}
+    updateTutorial();drawTutorial();
+    if(goalFlash>0) drawGoalOverlay();
   } else if(G.screen==='game'){
     updateGame();
     if(bgC)ctx.drawImage(bgC,0,0);
