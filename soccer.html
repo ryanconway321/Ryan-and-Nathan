@@ -20,15 +20,15 @@ const H = C.height = Math.min(window.innerHeight, 580);
 // ── LEVELS ─────────────────────────────────────────────────────────────────
 const LEVELS = [
   { id:0,  name:'Tutorial',       sub:'Learn the basics',     col:'#2255cc', diff:'TUTORIAL', time:999, aiSpd:0,   aiJump:false, aiKick:0,   scoreWin:1  },
-  { id:1,  name:'Kickoff',        sub:'Your first real match', col:'#22aa44', diff:'EASY',     time:120, aiSpd:1.4, aiJump:false, aiKick:0.12, scoreWin:1  },
-  { id:2,  name:'Park Game',      sub:'A friendly kickaround', col:'#22aa44', diff:'EASY',     time:110, aiSpd:2.0, aiJump:false, aiKick:0.22, scoreWin:1  },
-  { id:3,  name:'School League',  sub:'First real challenge',  col:'#88aa22', diff:'EASY',     time:100, aiSpd:2.6, aiJump:false, aiKick:0.30, scoreWin:1  },
-  { id:4,  name:'Town Cup',       sub:'Getting tougher',       col:'#ccaa00', diff:'MEDIUM',   time:90,  aiSpd:4.0, aiJump:true,  aiKick:0.5, scoreWin:1  },
-  { id:5,  name:'City Finals',    sub:'You feel the pressure', col:'#cc8800', diff:'MEDIUM',   time:80,  aiSpd:4.5, aiJump:true,  aiKick:0.6, scoreWin:1  },
-  { id:6,  name:'Regional Champ', sub:'This one won\'t be easy',col:'#cc5500',diff:'HARD',     time:75,  aiSpd:5.0, aiJump:true,  aiKick:0.7, scoreWin:1  },
-  { id:7,  name:'National Cup',   sub:'Elite competition',     col:'#cc2200', diff:'HARD',     time:70,  aiSpd:5.5, aiJump:true,  aiKick:0.8, scoreWin:1  },
-  { id:8,  name:'World Cup Semi', sub:'Only legends get here', col:'#aa0000', diff:'INSANE',   time:65,  aiSpd:6.0, aiJump:true,  aiKick:0.9, scoreWin:1  },
-  { id:9,  name:'WORLD CUP FINAL',sub:'BECOME A LEGEND',       col:'#880000', diff:'EXTREME',  time:60,  aiSpd:6.5, aiJump:true,  aiKick:1.0, scoreWin:1  },
+  { id:1,  name:'Kickoff',        sub:'Your first real match', col:'#22aa44', diff:'EASY',     time:30,  aiSpd:1.4, aiJump:false, aiKick:0.12, scoreWin:1  },
+  { id:2,  name:'Park Game',      sub:'A friendly kickaround', col:'#22aa44', diff:'EASY',     time:30,  aiSpd:2.0, aiJump:false, aiKick:0.22, scoreWin:1  },
+  { id:3,  name:'School League',  sub:'First real challenge',  col:'#88aa22', diff:'EASY',     time:30,  aiSpd:2.6, aiJump:false, aiKick:0.30, scoreWin:1  },
+  { id:4,  name:'Town Cup',       sub:'Getting tougher',       col:'#ccaa00', diff:'MEDIUM',   time:30,  aiSpd:4.0, aiJump:true,  aiKick:0.5, scoreWin:1  },
+  { id:5,  name:'City Finals',    sub:'You feel the pressure', col:'#cc8800', diff:'MEDIUM',   time:30,  aiSpd:4.5, aiJump:true,  aiKick:0.6, scoreWin:1  },
+  { id:6,  name:'Regional Champ', sub:'This one won\'t be easy',col:'#cc5500',diff:'HARD',     time:30,  aiSpd:5.0, aiJump:true,  aiKick:0.7, scoreWin:1  },
+  { id:7,  name:'National Cup',   sub:'Elite competition',     col:'#cc2200', diff:'HARD',     time:30,  aiSpd:5.5, aiJump:true,  aiKick:0.8, scoreWin:1  },
+  { id:8,  name:'World Cup Semi', sub:'Only legends get here', col:'#aa0000', diff:'INSANE',   time:30,  aiSpd:6.0, aiJump:true,  aiKick:0.9, scoreWin:1  },
+  { id:9,  name:'WORLD CUP FINAL',sub:'BECOME A LEGEND',       col:'#880000', diff:'EXTREME',  time:30,  aiSpd:6.5, aiJump:true,  aiKick:1.0, scoreWin:1  },
 ];
 const DIFF_COLS = { TUTORIAL:'#2255cc', EASY:'#22aa44', MEDIUM:'#ccaa00', HARD:'#cc5500', INSANE:'#cc0022', EXTREME:'#880000' };
 
