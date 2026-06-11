@@ -34,6 +34,8 @@ const DIFF_COLS = { TUTORIAL:'#2255cc', EASY:'#22aa44', MEDIUM:'#ccaa00', HARD:'
 
 // ── SAVE ───────────────────────────────────────────────────────────────────
 let save = JSON.parse(localStorage.getItem('soccer_save') || 'null') || { unlocked:1, stars:{} };
+if (!save.stars) save.stars = {};
+if (save.unlocked < 1) save.unlocked = 1;
 const persist = () => localStorage.setItem('soccer_save', JSON.stringify(save));
 
 // ── PHYSICS CONSTANTS ──────────────────────────────────────────────────────
@@ -420,9 +422,10 @@ function drawLevelSelect(){
   ctx.font='bold 36px Arial';ctx.textAlign='center';ctx.fillStyle='#66ee44';ctx.fillText('⚽  LEVEL SELECT',W/2,44);
   ctx.font='15px Arial';ctx.fillStyle='rgba(255,255,255,.4)';ctx.fillText(`🪙 Complete levels to unlock more`,W/2,68);
 
-  const cardW=155, cardH=120, gap=18, cols=5;
-  const totalW=cols*(cardW+gap)-gap;
-  const startX=(W-totalW)/2;
+  const cols=5, gap=14;
+  const cardW=Math.floor((W-gap*6)/cols);
+  const cardH=120;
+  const startX=gap;
   const startY=90;
 
   LEVELS.forEach((lv,i)=>{
@@ -460,8 +463,9 @@ function drawLevelSelect(){
       if(jclick&&hover) startLevel(i);
     } else {
       // Locked
-      ctx.font='28px Arial';ctx.textAlign='center';ctx.fillStyle='rgba(255,255,255,.2)';ctx.fillText('🔒',cx+cardW/2,cy+55);
-      ctx.font='bold 12px Arial';ctx.fillStyle='rgba(255,255,255,.3)';ctx.fillText(`Level ${i+1}`,cx+cardW/2,cy+82);
+      ctx.font='28px Arial';ctx.textAlign='center';ctx.fillStyle='rgba(255,255,255,.5)';ctx.fillText('🔒',cx+cardW/2,cy+52);
+      ctx.font='bold 12px Arial';ctx.fillStyle='rgba(255,255,255,.6)';ctx.fillText(lv.name,cx+cardW/2,cy+80);
+      ctx.font='10px Arial';ctx.fillStyle='rgba(255,255,255,.35)';ctx.fillText('Complete previous level',cx+cardW/2,cy+96);
     }
   });
 
@@ -581,8 +585,10 @@ function drawTwoPlayerHUD(){
 // ── MAIN LOOP ────────────────────────────────────────────────────────────────
 let frame=0;
 function loop(){
+  requestAnimationFrame(loop);
   frame++;ctx.clearRect(0,0,W,H);
   ctx.save();if(shk.t>.5)ctx.translate(shk.x,shk.y);
+  try{
 
   if(G.screen==='menu'){
     tickCrowd(false);drawMenu();
@@ -605,8 +611,8 @@ function loop(){
     drawResult();drawP();
   }
 
+  }catch(e){console.error('loop error:',e);}
   ctx.restore();jclick=false;
-  requestAnimationFrame(loop);
 }
 
 // ── BOOT ────────────────────────────────────────────────────────────────────
