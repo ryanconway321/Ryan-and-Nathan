@@ -626,8 +626,8 @@ function renderRoad() {
     segment.fog = exponentialFog(n / DRAW_DISTANCE, FOG_DENSITY);
     segment.clip = maxy;
 
-    project(segment.p1, (state.playerX * TRACK_WIDTH) - x, playerY + CAMERA_HEIGHT, state.playerPos - (segment.looped ? state.trackLength : 0), cameraDepth, W, H, TRACK_WIDTH);
-    project(segment.p2, (state.playerX * TRACK_WIDTH) - x - dx, playerY + CAMERA_HEIGHT, state.playerPos - (segment.looped ? state.trackLength : 0), cameraDepth, W, H, TRACK_WIDTH);
+    project(segment.p1, state.playerX - x, playerY + CAMERA_HEIGHT, state.playerPos - (segment.looped ? state.trackLength : 0), cameraDepth, W, H, TRACK_WIDTH);
+    project(segment.p2, state.playerX - x - dx, playerY + CAMERA_HEIGHT, state.playerPos - (segment.looped ? state.trackLength : 0), cameraDepth, W, H, TRACK_WIDTH);
 
     x = x + dx;
     dx = dx + segment.curve;
@@ -1274,7 +1274,7 @@ function updateDriving(dt) {
   if (keys['d'] || keys['ArrowRight']) targetSteer += 1;
   state.steerAngle += (targetSteer - state.steerAngle) * Math.min(1, dt * 8);
 
-  state.playerX -= state.steerAngle * Math.max(dx, 0.04) * car.handling;
+  state.playerX -= state.steerAngle * Math.max(dx, 0.002) * car.handling;
 
   // centrifugal force on curves
   state.playerX -= dx * speedPercent * playerSeg.curve * CENTRIFUGAL * 0.01;
