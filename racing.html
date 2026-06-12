@@ -1274,7 +1274,7 @@ function updateDriving(dt) {
   if (keys['d'] || keys['ArrowRight']) targetSteer += 1;
   state.steerAngle += (targetSteer - state.steerAngle) * Math.min(1, dt * 8);
 
-  state.playerX -= state.steerAngle * dx * car.handling;
+  state.playerX -= state.steerAngle * Math.max(dx, 0.04) * car.handling;
 
   // centrifugal force on curves
   state.playerX -= dx * speedPercent * playerSeg.curve * CENTRIFUGAL * 0.01;
