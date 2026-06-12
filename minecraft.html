@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Block World</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+canvas { display: block; cursor: crosshair; }
+#overlay { position: absolute; top: 0; left: 0; width: 800px; height: 600px; display: flex; justify-content: center; align-items: center; background: rgba(0,0,0,0.7); color: #fff; font-family: monospace; font-size: 24px; text-align: center; pointer-events: none; }
+#overlay.hidden { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c" width="800" height="600"></canvas>
+<div id="overlay">
+  <div>
+    <div style="font-size:36px;font-weight:bold;margin-bottom:16px">🧱 Block World</div>
+    <div style="font-size:18px;margin-bottom:8px">WASD / Arrow Keys — Move</div>
+    <div style="font-size:18px;margin-bottom:8px">Mouse — Look Around</div>
+    <div style="font-size:18px;margin-bottom:8px">Left Click — Break Block</div>
+    <div style="font-size:18px;margin-bottom:8px">Right Click — Place Block</div>
+    <div style="font-size:18px;margin-bottom:24px">1-5 — Select Block Type</div>
+    <div style="font-size:22px;color:#4f4;cursor:pointer" id="startBtn">Click to Play</div>
+  </div>
+</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 600;
+const overlay = document.getElementById('overlay');
+
+// Block types
+const BLOCKS = {
+  0: null,
+  1: { name: 'Grass',  top: '#5a8f3c', side: '#6b7c3a', bottom: '#8b6a3e' },
+  2: { name: 'Dirt',   top: '#8b6a3e', side: '#8b6a3e', bottom: '#8b6a3e' },
+  3: { name: 'Stone',  top: '#888',    side: '#888',    bottom: '#888' },
+  4: { name: 'Wood',   top: '#9c7a3a', side: '#7a5c2a', bottom: '#9c7a3a' },
+  5: { name: 'Leaves', top: '#2d6e1f', side: '#2d6e1f', bottom: '#2d6e1f' },
+  6: { name: 'Sand',   top: '#d4c07a', side: '#d4c07a', bottom: '#d4c07a' },
+};
+
+const MAP_W = 64, MAP_H = 64, MAP_DEPTH = 8;
+const map = new Uint8Array(MAP_W * MAP_H * MAP_DEPTH);
+
+function idx(x, y, z) {
+  if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H || z < 0 || z >= MAP_DEPTH) return -1;
+  return z * MAP_W * MAP_H + y * MAP_W + x;
+}
+function getBlock(x, y, z) {
+  const i = idx(x, y, z); return i < 0 ? 1 : map[i];
+}
+function setBlock(x, y, z, v) {
+  const i = idx(x, y, z); if (i >= 0) map[i] = v;
+}
+
+// Noise
+function noise(x, y) {
+  const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return n - Math.floor(n);
+}
+function smoothNoise(x, y) {
+  let v = 0, amp = 1, freq = 1, max = 0;
+  for (let i = 0; i < 4; i++) {
+    v += noise(x * freq, y * freq) * amp;
+    max += amp; amp *= 0.5; freq *= 2;
+  }
+  return v / max;
+}
+
+// Generate world
+function genWorld() {
+  map.fill(0);
+  for (let x = 0; x < MAP_W; x++) {
+    for (let y = 0; y < MAP_H; y++) {
+      const h = Math.floor(smoothNoise(x * 0.08, y * 0.08) * 4) + 1;
+      for (let z = 0; z < h; z++) {
+        setBlock(x, y, z, z === h - 1 ? 1 : z === h - 2 ? 2 : 3);
+      }
+      // Trees
+      if (Math.random() < 0.015 && x > 2 && y > 2 && x < MAP_W-2 && y < MAP_H-2) {
+        const th = h + Math.floor(Math.random() * 2) + 3;
+        for (let z = h; z < th; z++) setBlock(x, y, z, 4);
+        for (let dx = -2; dx <= 2; dx++) for (let dy = -2; dy <= 2; dy++) {
+          for (let dz = 0; dz <= 2; dz++) {
+            if (Math.abs(dx) + Math.abs(dy) + Math.abs(dz) <= 3)
+              setBlock(x+dx, y+dy, th-1+dz, 5);
+          }
+        }
+      }
+    }
+  }
+}
+
+genWorld();
+
+// Player
+const player = {
+  x: MAP_W / 2 + 0.5, y: MAP_H / 2 + 0.5, z: 4.6,
+  angle: 0, pitch: 0,
+  velZ: 0, onGround: false,
+  selectedBlock: 1
+};
+
+const FOV = Math.PI / 3;
+const HALF_FOV = FOV / 2;
+const NUM_RAYS = W;
+const MAX_DIST = 20;
+
+const keys = {};
+let mouseX = 0, pointerLocked = false;
+let dayTime = 0.3;
+
+// Audio
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playSound(type) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain); gain.connect(audioCtx.destination);
+  if (type === 'break') {
+    osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.15);
+    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+  } else if (type === 'place') {
+    osc.type = 'square'; osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+  } else if (type === 'step') {
+    osc.type = 'sine'; osc.frequency.setValueAtTime(100 + Math.random()*50, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.08);
+  }
+}
+
+let stepTimer = 0;
+let bobPhase = 0;
+
+// Raycasting
+function castRay(angle) {
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
+  let dist = 0;
+  const stepSize = 0.05;
+  const px = player.x, py = player.y;
+  const eyeZ = player.z + 0.1 + Math.sin(bobPhase) * 0.04;
+
+  for (let d = 0; d < MAX_DIST; d += stepSize) {
+    const wx = px + cosA * d;
+    const wy = py + sinA * d;
+    const bx = Math.floor(wx), by = Math.floor(wy);
+
+    // Check columns from eye height downward and upward
+    for (let dz = -2; dz <= 3; dz++) {
+      const bz = Math.floor(eyeZ) + dz;
+      if (getBlock(bx, by, bz)) {
+        const block = BLOCKS[getBlock(bx, by, bz)];
+        if (!block) continue;
+        // Determine face
+        const frac = d;
+        const normDist = d * Math.cos(angle - player.angle);
+        const wallH = Math.min(H, H / normDist * 0.8);
+        // Screen Y for this block layer
+        const screenMidY = H / 2 - (bz + 1 - eyeZ) / normDist * H * 0.8 + player.pitch * H * 0.5;
+        return { dist: normDist, wallH, screenMidY, block, bx, by, bz, wx, wy, d };
+      }
+    }
+  }
+  return null;
+}
+
+// Full column rendering with multiple block hits
+function renderColumn(col) {
+  const angle = player.angle - HALF_FOV + (col / NUM_RAYS) * FOV;
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
+  const eyeZ = player.z + 0.1 + Math.sin(bobPhase) * 0.04;
+  const cosRel = Math.cos(angle - player.angle);
+
+  // Sky gradient
+  const skyTop = lerpColor(skyColors.nightTop, skyColors.dayTop, Math.max(0, Math.sin(dayTime * Math.PI * 2) * 0.5 + 0.5));
+  const skyBot = lerpColor(skyColors.nightBot, skyColors.dayBot, Math.max(0, Math.sin(dayTime * Math.PI * 2) * 0.5 + 0.5));
+  const t = col / W;
+
+  // Draw sky for this column
+  const horizonY = H / 2 + player.pitch * H * 0.5;
+  const grad = ctx.createLinearGradient(0, 0, 0, horizonY);
+  grad.addColorStop(0, skyTop);
+  grad.addColorStop(1, skyBot);
+  ctx.fillStyle = grad;
+  ctx.fillRect(col, 0, 1, horizonY);
+
+  // Floor color
+  ctx.fillStyle = '#4a3728';
+  ctx.fillRect(col, horizonY, 1, H - horizonY);
+
+  // Raycast blocks in this column
+  const hits = [];
+  const stepSize = 0.06;
+  let drawnZ = new Set();
+
+  for (let d = stepSize; d < MAX_DIST; d += stepSize) {
+    const wx = player.x + cosA * d;
+    const wy = player.y + sinA * d;
+    const bx = Math.floor(wx), by = Math.floor(wy);
+    const normDist = d * cosRel;
+    if (normDist < 0.1) continue;
+    const colH = H / normDist * 0.85;
+
+    for (let dz = 4; dz >= -2; dz--) {
+      const bz = Math.floor(eyeZ) + dz;
+      const blockId = getBlock(bx, by, bz);
+      if (!blockId) continue;
+      const key = `${bx},${by},${bz}`;
+      if (drawnZ.has(key)) continue;
+      drawnZ.add(key);
+
+      const block = BLOCKS[blockId];
+      if (!block) continue;
+
+      const topY = H/2 - (bz + 1 - eyeZ) * colH + player.pitch * H * 0.5;
+      const botY = H/2 - (bz - eyeZ) * colH + player.pitch * H * 0.5;
+      const drawH = botY - topY;
+
+      // Fog
+      const fog = Math.min(1, d / MAX_DIST);
+      const shade = Math.max(0, 1 - fog);
+
+      // Determine if side or top
+      const fracX = wx - bx, fracY = wy - by;
+      const isTop = false;
+      let color = block.side;
+      // Darken by face direction
+      const lightness = 1.0;
+
+      ctx.fillStyle = shadeColor(color, shade * 0.85 + 0.15);
+      ctx.fillRect(col, topY, 1, Math.max(1, drawH));
+
+      hits.push({ bx, by, bz, d, normDist, topY, botY });
+    }
+  }
+
+  return hits;
+}
+
+const skyColors = {
+  dayTop: '#5ba8e8', dayBot: '#a8d4f5',
+  nightTop: '#0a0a2a', nightBot: '#1a1a4a'
+};
+
+function lerpColor(c1, c2, t) {
+  const r1 = parseInt(c1.slice(1,3),16), g1 = parseInt(c1.slice(3,5),16), b1 = parseInt(c1.slice(5,7),16);
+  const r2 = parseInt(c2.slice(1,3),16), g2 = parseInt(c2.slice(3,5),16), b2 = parseInt(c2.slice(5,7),16);
+  const r = Math.round(r1 + (r2-r1)*t), g = Math.round(g1 + (g2-g1)*t), b = Math.round(b1 + (b2-b1)*t);
+  return `rgb(${r},${g},${b})`;
+}
+
+function shadeColor(hex, factor) {
+  let r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  if (isNaN(r)) {
+    // rgb format
+    const m = hex.match(/rgb\((\d+),(\d+),(\d+)\)/);
+    if (m) { r = parseInt(m[1]); g = parseInt(m[2]); b = parseInt(m[3]); }
+  }
+  r = Math.floor(r * factor); g = Math.floor(g * factor); b = Math.floor(b * factor);
+  return `rgb(${r},${g},${b})`;
+}
+
+// Find block player is looking at
+function getLookTarget() {
+  const angle = player.angle;
+  const cosA = Math.cos(angle), sinA = Math.sin(angle);
+  const eyeZ = player.z + 0.5;
+  const pitchFwd = Math.cos(player.pitch);
+  const pitchUp = Math.sin(-player.pitch);
+
+  for (let d = 0.5; d < 6; d += 0.05) {
+    const wx = player.x + cosA * d * pitchFwd;
+    const wy = player.y + sinA * d * pitchFwd;
+    const wz = eyeZ + pitchUp * d;
+    const bx = Math.floor(wx), by = Math.floor(wy), bz = Math.floor(wz);
+    if (getBlock(bx, by, bz)) {
+      // Previous position = place target
+      const pd = d - 0.05;
+      const px2 = player.x + cosA * pd * pitchFwd;
+      const py2 = player.y + sinA * pd * pitchFwd;
+      const pz2 = eyeZ + pitchUp * pd;
+      return {
+        hit: { x: bx, y: by, z: bz },
+        place: { x: Math.floor(px2), y: Math.floor(py2), z: Math.floor(pz2) }
+      };
+    }
+  }
+  return null;
+}
+
+// Particles
+const particles = [];
+function spawnBreakParticles(bx, by, bz, block) {
+  const color = block.side;
+  for (let i = 0; i < 12; i++) {
+    particles.push({
+      x: bx + 0.5, y: by + 0.5, z: bz + 0.5,
+      vx: (Math.random()-0.5)*3, vy: (Math.random()-0.5)*3, vz: Math.random()*3+1,
+      life: 1, color, size: Math.random()*4+2
+    });
+  }
+}
+
+let lookTarget = null;
+let started = false;
+
+document.getElementById('startBtn').addEventListener('click', () => {
+  overlay.classList.add('hidden');
+  canvas.requestPointerLock();
+  started = true;
+  audioCtx.resume();
+});
+
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === canvas;
+});
+
+document.addEventListener('mousemove', e => {
+  if (!pointerLocked || !started) return;
+  player.angle += e.movementX * 0.002;
+  player.pitch = Math.max(-0.8, Math.min(0.8, player.pitch - e.movementY * 0.002));
+});
+
+document.addEventListener('keydown', e => { keys[e.key] = true; keys[e.code] = true; });
+document.addEventListener('keyup', e => { keys[e.key] = false; keys[e.code] = false; });
+
+document.addEventListener('keydown', e => {
+  if (e.key >= '1' && e.key <= '5') player.selectedBlock = parseInt(e.key);
+  if (e.key === ' ') {
+    e.preventDefault();
+    if (player.onGround) { player.velZ = 7; player.onGround = false; }
+  }
+});
+
+canvas.addEventListener('mousedown', e => {
+  if (!started) return;
+  if (!pointerLocked) { canvas.requestPointerLock(); return; }
+  const target = getLookTarget();
+  if (!target) return;
+  if (e.button === 0) {
+    // Break
+    const b = BLOCKS[getBlock(target.hit.x, target.hit.y, target.hit.z)];
+    if (b) spawnBreakParticles(target.hit.x, target.hit.y, target.hit.z, b);
+    setBlock(target.hit.x, target.hit.y, target.hit.z, 0);
+    playSound('break');
+  } else if (e.button === 2) {
+    // Place
+    const p = target.place;
+    if (!(Math.floor(player.x) === p.x && Math.floor(player.y) === p.y && (Math.floor(player.z) === p.z || Math.floor(player.z+1) === p.z))) {
+      setBlock(p.x, p.y, p.z, player.selectedBlock);
+      playSound('place');
+    }
+  }
+});
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+let lastTime = 0;
+function update(dt) {
+  if (!started) return;
+  dayTime += dt * 0.02;
+
+  const speed = 5;
+  const cosA = Math.cos(player.angle), sinA = Math.sin(player.angle);
+  let moved = false;
+
+  let dx = 0, dy = 0;
+  if (keys['w'] || keys['ArrowUp'])    { dx += cosA; dy += sinA; moved = true; }
+  if (keys['s'] || keys['ArrowDown'])  { dx -= cosA; dy -= sinA; moved = true; }
+  if (keys['a'] || keys['ArrowLeft'])  { dx += sinA; dy -= cosA; moved = true; }
+  if (keys['d'] || keys['ArrowRight']) { dx -= sinA; dy += cosA; moved = true; }
+
+  if (moved) {
+    const len = Math.sqrt(dx*dx + dy*dy);
+    dx = dx/len * speed * dt; dy = dy/len * speed * dt;
+    bobPhase += dt * 8;
+    stepTimer -= dt;
+    if (stepTimer <= 0) { playSound('step'); stepTimer = 0.4; }
+  } else {
+    bobPhase *= 0.9;
+  }
+
+  // Collision
+  const nx = player.x + dx, ny = player.y + dy;
+  const bz = Math.floor(player.z);
+  if (!getBlock(Math.floor(nx), Math.floor(player.y), bz) &&
+      !getBlock(Math.floor(nx), Math.floor(player.y), bz+1))
+    player.x = nx;
+  if (!getBlock(Math.floor(player.x), Math.floor(ny), bz) &&
+      !getBlock(Math.floor(player.x), Math.floor(ny), bz+1))
+    player.y = ny;
+
+  // Gravity
+  player.velZ -= 20 * dt;
+  player.z += player.velZ * dt;
+
+  const floorZ = Math.floor(player.z);
+  if (getBlock(Math.floor(player.x), Math.floor(player.y), floorZ)) {
+    player.z = floorZ + 1;
+    player.velZ = 0;
+    player.onGround = true;
+  } else {
+    player.onGround = false;
+  }
+  if (player.z < 1) { player.z = 1; player.velZ = 0; player.onGround = true; }
+
+  // Particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    p.vz -= 15 * dt;
+    p.life -= dt * 1.5;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+// Render particles as 2D projected dots
+function renderParticles() {
+  const eyeZ = player.z + 0.5;
+  for (const p of particles) {
+    const dx = p.x - player.x, dy = p.y - player.y, dz = p.z - eyeZ;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    if (dist < 0.1) continue;
+    const angleToP = Math.atan2(dy, dx);
+    let relAngle = angleToP - player.angle;
+    while (relAngle > Math.PI) relAngle -= Math.PI * 2;
+    while (relAngle < -Math.PI) relAngle += Math.PI * 2;
+    if (Math.abs(relAngle) > HALF_FOV + 0.2) continue;
+    const screenX = W/2 + (relAngle / HALF_FOV) * W/2;
+    const screenY = H/2 - (dz / dist) * H * 0.85 + player.pitch * H * 0.5;
+    const size = p.size / dist * 2;
+    ctx.globalAlpha = p.life;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(screenX - size/2, screenY - size/2, size, size);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Stars
+const stars = Array.from({length: 200}, () => ({ x: Math.random()*W, y: Math.random()*H*0.5, b: Math.random() }));
+function renderStars() {
+  const night = 1 - Math.max(0, Math.sin(dayTime * Math.PI * 2) * 0.5 + 0.5);
+  if (night < 0.1) return;
+  ctx.fillStyle = `rgba(255,255,255,${night * 0.8})`;
+  for (const s of stars) {
+    const size = s.b < 0.1 ? 2 : 1;
+    ctx.fillRect(s.x, s.y, size, size);
+  }
+}
+
+// Sun/Moon
+function renderSky() {
+  const angle = dayTime * Math.PI * 2;
+  const sunX = W/2 + Math.cos(angle - Math.PI/2) * W * 0.4;
+  const sunY = H * 0.25 - Math.sin(angle - Math.PI/2) * H * 0.3;
+  const daytime = Math.sin(angle) * 0.5 + 0.5;
+
+  renderStars();
+
+  if (daytime > 0.05) {
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 20, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,230,100,${daytime})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 30, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,230,100,${daytime * 0.2})`;
+    ctx.fill();
+  }
+}
+
+// HUD
+const blockNames = ['', 'Grass', 'Dirt', 'Stone', 'Wood', 'Leaves'];
+const blockColors = ['', '#5a8f3c', '#8b6a3e', '#888', '#7a5c2a', '#2d6e1f'];
+
+function renderHUD() {
+  // Crosshair
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(W/2-10, H/2); ctx.lineTo(W/2+10, H/2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2, H/2-10); ctx.lineTo(W/2, H/2+10); ctx.stroke();
+
+  // Hotbar
+  const slotW = 48, slotH = 48, pad = 4;
+  const totalW = 5 * (slotW + pad) - pad;
+  const startX = W/2 - totalW/2;
+  const startY = H - 60;
+
+  for (let i = 1; i <= 5; i++) {
+    const sx = startX + (i-1) * (slotW + pad);
+    const selected = i === player.selectedBlock;
+    ctx.fillStyle = selected ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.5)';
+    ctx.strokeStyle = selected ? '#fff' : 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = selected ? 2 : 1;
+    ctx.beginPath(); ctx.roundRect(sx, startY, slotW, slotH, 4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = blockColors[i];
+    ctx.fillRect(sx + 8, startY + 8, slotW - 16, slotH - 16);
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px monospace';
+    ctx.fillText(i, sx + 4, startY + slotH - 4);
+  }
+
+  // Block name
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(W/2 - 60, startY - 26, 120, 22);
+  ctx.fillStyle = '#fff';
+  ctx.font = '14px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(blockNames[player.selectedBlock], W/2, startY - 10);
+  ctx.textAlign = 'left';
+
+  // Coords
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(8, 8, 180, 50);
+  ctx.fillStyle = '#fff';
+  ctx.font = '13px monospace';
+  ctx.fillText(`X: ${player.x.toFixed(1)}  Y: ${player.y.toFixed(1)}`, 14, 26);
+  ctx.fillText(`Z: ${player.z.toFixed(1)}  ${pointerLocked ? '🔒' : 'Click to play'}`, 14, 46);
+
+  // Look target highlight
+  if (lookTarget) {
+    // Draw a subtle outline in screen center
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(W/2 - 14, H/2 - 14, 28, 28);
+  }
+
+  // Controls hint
+  if (!pointerLocked) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(W/2-120, H/2+30, 240, 30);
+    ctx.fillStyle = '#ff4';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Click to capture mouse', W/2, H/2+50);
+    ctx.textAlign = 'left';
+  }
+}
+
+// Optimized render using ImageData for speed
+function render() {
+  // Draw sky
+  const daytime = Math.max(0, Math.sin(dayTime * Math.PI * 2) * 0.5 + 0.5);
+  const skyT = lerpColor('#0a0a2a', '#5ba8e8', daytime);
+  const skyB = lerpColor('#1a1a4a', '#a8d4f5', daytime);
+  const skyGrad = ctx.createLinearGradient(0, 0, 0, H/2 + player.pitch * H * 0.5);
+  skyGrad.addColorStop(0, skyT);
+  skyGrad.addColorStop(1, skyB);
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, W, H/2 + player.pitch * H * 0.5 + 50);
+
+  // Ground
+  ctx.fillStyle = '#3a2a18';
+  ctx.fillRect(0, H/2 + player.pitch * H * 0.5, W, H);
+
+  renderStars();
+  renderSky();
+
+  // Raycasting columns
+  const eyeZ = player.z + 0.5 + Math.sin(bobPhase) * 0.04;
+  const horizY = H/2 + player.pitch * H * 0.5;
+  const pitchFwd = Math.cos(player.pitch);
+  const pitchUp = Math.sin(-player.pitch);
+
+  const STEP = 0.07;
+
+  for (let col = 0; col < W; col += 2) {
+    const rayAngle = player.angle - HALF_FOV + (col / W) * FOV;
+    const cosR = Math.cos(rayAngle), sinR = Math.sin(rayAngle);
+    const cosRel = Math.cos(rayAngle - player.angle);
+
+    let lastBZ = -999;
+    for (let d = 0.3; d < MAX_DIST; d += STEP) {
+      const wx = player.x + cosR * d;
+      const wy = player.y + sinR * d;
+      const bx = Math.floor(wx), by = Math.floor(wy);
+      const normDist = d * cosRel;
+      if (normDist < 0.05) continue;
+      const colH = H / normDist * 0.85;
+
+      for (let dz = 5; dz >= -3; dz--) {
+        const bz = Math.floor(eyeZ) + dz;
+        const blockId = getBlock(bx, by, bz);
+        if (!blockId) continue;
+        const block = BLOCKS[blockId];
+        if (!block) continue;
+
+        const topY = horizY - (bz + 1 - eyeZ) * colH;
+        const botY = horizY - (bz - eyeZ) * colH;
+        if (botY < 0 || topY > H) continue;
+
+        const fog = Math.min(1, d / (MAX_DIST * 0.8));
+        const shade = Math.max(0.15, 1 - fog * 0.85);
+        const extra = dz <= 0 ? 0.7 : 1.0; // darken underground faces
+
+        ctx.fillStyle = shadeColor(block.side, shade * extra);
+        ctx.fillRect(col, Math.max(0, topY), 2, Math.min(H, botY) - Math.max(0, topY));
+      }
+    }
+  }
+
+  renderParticles();
+  renderHUD();
+}
+
+function loop(ts) {
+  const dt = Math.min(0.05, (ts - lastTime) / 1000);
+  lastTime = ts;
+  update(dt);
+  lookTarget = getLookTarget();
+  render();
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
