@@ -50,10 +50,12 @@ function snd_win(){
 }
 
 // ── BPM music ─────────────────────────────────────────────────
-const BPM=144, B=60/BPM;
+const BPM=130, B=60/BPM;
 let musicTimer=null, mBeat=0;
-const MEL=[659,0,784,0,659,587,0,523,587,659,0,784,880,0,784,0];
-const BASS=[131,131,131,131,175,175,175,175,131,131,131,131,110,110,131,131];
+// Stereo Madness-inspired synth melody
+const MEL=[784,0,784,659,784,0,698,0,784,0,784,659,587,0,659,0,
+           523,0,523,440,523,0,494,0,523,0,523,440,392,0,440,0];
+const BASS=[131,0,131,0,147,0,131,0,110,0,131,0,117,0,110,0];
 function startMusic(){
   if(musicTimer)return;
   mBeat=0;
@@ -89,111 +91,128 @@ function stopMusic(){ clearTimeout(musicTimer); musicTimer=null; }
 //        'orb'=yellow orb, 'ship'=ship portal, 'cube'=cube portal, 'ball'=ball portal, 'end'=end flag
 function makeLvl(){
   const o=[];
-  const b  =(tx,ty=0)=>o.push({t:'b', x:tx*T, y:GX-(ty+1)*T, w:T, h:T});
-  const b2 =(tx)     =>o.push({t:'b', x:tx*T, y:GX-T*2,      w:T, h:T*2});
+  // b(tx,ty): block at tile x, ty rows above ground (0=ground level)
+  const b  =(tx,ty=0)=>o.push({t:'b', x:tx*T, y:GX-(ty+1)*T,  w:T, h:T});
+  const b2 =(tx,ty=0)=>o.push({t:'b', x:tx*T, y:GX-(ty+2)*T,  w:T, h:T*2});
+  const b3 =(tx,ty=0)=>o.push({t:'b', x:tx*T, y:GX-(ty+3)*T,  w:T, h:T*3});
   const s  =(tx)     =>o.push({t:'s', x:tx*T, y:GX-T});
   const ss =(tx)     =>{s(tx);s(tx+1);};
-  const pl =(tx,ty,w)=>o.push({t:'p', x:tx*T, y:GX-ty*T,     w:(w||3)*T, h:8});
+  const sss=(tx)     =>{s(tx);s(tx+1);s(tx+2);};
   const orb=(tx,ty)  =>o.push({t:'orb', x:tx*T+T/2, y:GX-ty*T});
-  const portal=(tx,mode)=>o.push({t:'portal', x:tx*T, mode});
-  const end=(tx)     =>o.push({t:'end', x:tx*T});
+  const portal=(tx,mode)=>o.push({t:'portal',x:tx*T,mode});
+  const end=(tx)     =>o.push({t:'end',x:tx*T});
 
-  // ── SECTION 1: Very easy intro ─────────────────────────────
-  // Single spikes with huge gaps — just learn the jump timing
-  s(10);
-  s(15);
-  s(20);
-  b(25);          // single block to jump onto
-  s(28);
-  s(33);
-  ss(38);         // first double spike (wide gap before it)
-  b(44);
-  s(47);
-  s(52);
-  ss(57);
-  b(62);
-  s(65);
+  // ═══════════════════════════════════════════════
+  //  STEREO MADNESS  — level layout
+  // ═══════════════════════════════════════════════
 
-  // ── SECTION 2: Moderate — blocks + orbs ────────────────────
-  b(74);
-  s(77);
-  b2(82);         // tall block — jump over it
-  s(85);
-  s(90);
-  orb(95,4);      // first orb: jump onto it mid-air
-  s(98);
-  b(103);
-  s(106);
-  ss(111);
-  orb(117,4);
-  b(120);
-  s(123);
-  ss(128);
-  b(133);
-  s(136);
+  // ── Part 1: Opening (easy single spikes) ───────
+  s(9);
+  s(13);
+  s(17);
+  b(22);
+  s(25);
+  s(29);
+  ss(33);
+  b(38);
+  s(41);
+  s(45);
+  b(50); s(51);        // block with spike after
+  s(55);
+  ss(59);
 
-  // ── SECTION 3: Ship portal (easy gaps) ─────────────────────
-  portal(144,'ship');
-  // Wide gaps between obstacles so ship is easy
-  o.push({t:'ceil',x:150*T, y:0,          w:T, h:120});
-  o.push({t:'ceil',x:155*T, y:GX-120,     w:T, h:120});
-  o.push({t:'ceil',x:161*T, y:0,          w:T, h:100});
-  o.push({t:'ceil',x:166*T, y:GX-110,     w:T, h:110});
-  o.push({t:'ceil',x:172*T, y:0,          w:T, h:130});
-  o.push({t:'ceil',x:177*T, y:GX-130,     w:T, h:130});
+  // ── Part 2: Staircase section ──────────────────
+  // ascending blocks — jump from ground onto 1, 2, 3 high stacks
+  b(66);               // 1-block step
+  b(70); b(71);        // 2-block step (jump up)
+  b(75); b(76); b(77); // 3-block step
+  b(78,1);             // block on top of the stack
+  s(80);
+  b(84);
+  s(87);
+  ss(91);
+  b(96); b(97);
+  s(99);
+  s(103);
+  ss(107);
 
-  // ── SECTION 4: Cube again, medium ──────────────────────────
-  portal(184,'cube');
-  s(188);
-  ss(193);
-  b(198);
-  s(201);
-  orb(206,4);
-  ss(210);
-  b(215);
-  s(218);
-  ss(223);
-  b2(228);
-  s(231);
-  orb(236,4);
-  ss(240);
-  s(244);
-  b(249);
-  ss(253);
+  // ── Part 3: Orb section ────────────────────────
+  orb(114, 4);         // yellow orb: jump at it
+  s(117);
+  b(121); s(122);
+  orb(127, 4);
+  ss(131);
+  b(136);
+  s(139);
+  orb(144, 4);
+  ss(148);
+  b(153);
+  s(156);
+  ss(160);
+  s(164);
 
-  // ── SECTION 5: Ball mode (easy — just floor spikes) ────────
-  portal(260,'ball');
-  s(265);
-  s(271);
-  s(277);
-  s(283);         // ball = flip gravity to dodge floor spikes
-  s(289);
-  s(295);
-  s(301);
+  // ── Part 4: Ship portal ────────────────────────
+  portal(170, 'ship');
+  // ceiling/floor tunnel obstacles — generous gaps
+  o.push({t:'ceil', x:176*T, y:0,       w:T, h:110});
+  o.push({t:'ceil', x:181*T, y:GX-110,  w:T, h:110});
+  o.push({t:'ceil', x:187*T, y:0,       w:T, h:100});
+  o.push({t:'ceil', x:192*T, y:GX-110,  w:T, h:110});
+  o.push({t:'ceil', x:198*T, y:0,       w:T, h:120});
+  o.push({t:'ceil', x:203*T, y:GX-120,  w:T, h:120});
+  o.push({t:'ceil', x:209*T, y:0,       w:T, h:105});
+  o.push({t:'ceil', x:214*T, y:GX-105,  w:T, h:105});
 
-  // ── SECTION 6: Final cube (challenging but fair) ───────────
-  portal(308,'cube');
-  ss(313);
-  b(318); s(321);
-  ss(326);
-  orb(332,4);
-  b(336); s(339);
-  ss(344);
-  b2(349); s(352);
-  orb(357,4);
-  ss(362);
-  b(367); ss(370);
-  orb(376,4);
-  ss(380); s(384);
-  b2(389); ss(392);
-  s(397);
+  // ── Part 5: Cube (second half) ────────────────
+  portal(221, 'cube');
+  s(225);
+  ss(229);
+  b(234);
+  s(237);
+  orb(242, 4);
+  ss(246);
+  b(251); s(252);
+  s(256);
+  ss(260);
+  b(265); b(266);
+  s(268);
+  orb(273, 4);
+  ss(277);
+  b(282);
+  s(285);
+  ss(289);
+  s(293);
+  orb(298, 4);
+  b(302); s(303);
+  ss(307);
 
-  end(404);
+  // ── Part 6: Final push (hardest section) ──────
+  s(314);
+  ss(318);
+  b(323); s(324);
+  orb(329, 4);
+  ss(333);
+  b(338); b(339);
+  s(341);
+  ss(345);
+  orb(350, 4);
+  b(354); s(355); s(356);
+  ss(360);
+  orb(366, 4);
+  ss(370); s(374);
+  b(379); b(380); s(382);
+  orb(387, 4);
+  ss(391);
+  s(396);
+  ss(400);
+  s(405);
+
+  end(412);
   return o;
 }
 
 const LEVEL = makeLvl();
-const LVL_W = 410*T;
+const LVL_W = 418*T;
 
 // ── Player ─────────────────────────────────────────────────────
 const P={
@@ -462,14 +481,11 @@ function snapRot(){
 }
 
 // ── Background colors per section ─────────────────────────────
+// Stereo Madness uses a single blue/teal color scheme
 const THEMES=[
-  {sky1:'#0a0a1e',sky2:'#12124a',ground:'#0d0d2a',line:'#1a1a55',glow:'#4af',acc:'#2a2a88'},
-  {sky1:'#1a0a0a',sky2:'#4a1010',ground:'#2a0d0d',line:'#5a1a1a',glow:'#f44',acc:'#881a1a'},
-  {sky1:'#0a1a0a',sky2:'#104a10',ground:'#0d2a0d',line:'#1a5a1a',glow:'#4f4',acc:'#1a881a'},
-  {sky1:'#1a1a0a',sky2:'#4a4a10',ground:'#2a2a0d',line:'#5a5a1a',glow:'#ff4',acc:'#88881a'},
-  {sky1:'#1a0a1a',sky2:'#4a104a',ground:'#2a0d2a',line:'#5a1a5a',glow:'#f4f',acc:'#881a88'},
+  {sky1:'#050510',sky2:'#0a0a2a',ground:'#080818',line:'#111138',glow:'#4ad',acc:'#112244'},
 ];
-function theme(){ return THEMES[Math.floor(pct/20)%THEMES.length]; }
+function theme(){ return THEMES[0]; }
 
 // Animated background triangles
 const BGT=Array.from({length:40},()=>({
@@ -778,13 +794,13 @@ function drawMenu(){
   // Title glow
   cx.save();
   cx.shadowColor='#4af'; cx.shadowBlur=40;
-  cx.fillStyle='#4af'; cx.font='bold 62px Arial'; cx.textAlign='center';
-  cx.fillText('GEOMETRY',W/2,H/2-55);
+  cx.fillStyle='#4ad'; cx.font='bold 52px Arial'; cx.textAlign='center';
+  cx.fillText('GEOMETRY DASH',W/2,H/2-60);
   cx.restore();
   cx.save();
   cx.shadowColor='#fff'; cx.shadowBlur=20;
-  cx.fillStyle='#fff'; cx.font='bold 62px Arial'; cx.textAlign='center';
-  cx.fillText('DASH',W/2,H/2+10);
+  cx.fillStyle='#fff'; cx.font='bold 36px Arial'; cx.textAlign='center';
+  cx.fillText('Stereo Madness',W/2,H/2-5);
   cx.restore();
   // Subtitle
   cx.fillStyle='rgba(255,255,255,0.55)'; cx.font='15px Arial'; cx.textAlign='center';
