@@ -92,6 +92,7 @@
         <p><span>WASD</span> — Move on court</p>
         <p><span>MOUSE</span> — Aim toward basket</p>
         <p><span>SPACE</span> (hold + release) — Shoot</p>
+        <p><span>E</span> — Pass to open teammate</p>
         <p><span>R</span> — Restart anytime</p>
       </div>
       <p id="hiscore" style="color:#ffb84a; font-weight:bold; margin-bottom:14px;"></p>
@@ -233,6 +234,9 @@ window.addEventListener('keydown', e => {
   if (e.code === 'KeyR') {
     if (state === STATE.GAMEOVER || state === STATE.PLAY) restartGame();
   }
+  if (e.code === 'KeyE') {
+    if (player.hasBall && state === STATE.PLAY) doPass();
+  }
 });
 window.addEventListener('keyup', e => {
   keys[e.code] = false;
@@ -303,6 +307,25 @@ let spaceDownTime = 0;
 let missDir = '';
 let missTextTimer = 0;
 const defender2 = { x: 4, z: 10, active: false };
+
+// Teammates
+const teammates = [
+  {
+    x: 7, z: 14, vx: 0, vz: 0,
+    num: '11', color: '#2a8a3a',
+    homeX: 7, homeZ: 14,
+    wanderT: 0, hasBall: false, holdT: 0,
+  },
+  {
+    x: -6, z: 12, vx: 0, vz: 0,
+    num: '5', color: '#aa8800',
+    homeX: -6, homeZ: 12,
+    wanderT: 0, hasBall: false, holdT: 0,
+  },
+];
+// Pass state
+ball.passingTo = null;
+let passIndicatorPulse = 0;
 
 // Crowd
 const crowd = [];
@@ -1228,6 +1251,198 @@ function releaseShot() {
   if (inSweet) sfx.release();
 }
 
+// ===== Teammate helpers =====
+function getBestPassTarget() {
+  // Prefer open teammates (no defender within 3 units), else nearest
+  let best = null, bestScore = Infinity;
+  for (const tm of teammates) {
+    if (tm.hasBall) continue;
+    const distToPlayer = Math.hypot(tm.x - player.x, tm.z - player.z);
+    const distToDef1 = Math.hypot(tm.x - defender.x, tm.z - defender.z);
+    const distToDef2 = defender2.active ? Math.hypot(tm.x - defender2.x, tm.z - defender2.z) : 99;
+    const isOpen = distToDef1 > 3 && distToDef2 > 3;
+    // Score: open teammates score low (preferred), contested score higher
+    const score = isOpen ? distToPlayer : distToPlayer + 1000;
+    if (score < bestScore) { bestScore = score; best = tm; }
+  }
+  return best;
+}
+
+function isTeammateOpen(tm) {
+  const d1 = Math.hypot(tm.x - defender.x, tm.z - defender.z);
+  const d2 = defender2.active ? Math.hypot(tm.x - defender2.x, tm.z - defender2.z) : 99;
+  return d1 > 3 && d2 > 3;
+}
+
+function doPass() {
+  if (!player.hasBall || state !== STATE.PLAY) return;
+  const tm = getBestPassTarget();
+  if (!tm) return;
+
+  charging = false; chargePower = 0;
+
+  // Launch ball toward teammate
+  const dx = tm.x - player.x;
+  const dz = tm.z - player.z;
+  const dist = Math.hypot(dx, dz);
+  const flightTime = 0.4;
+  ball.x = player.x; ball.y = 1.6; ball.z = player.z - 0.4;
+  ball.vx = dx / flightTime;
+  ball.vz = dz / flightTime;
+  ball.vy = 3; // low arc
+  ball.flying = true;
+  ball.released = false;
+  ball.scored = false;
+  ball.missed = false;
+  ball.willMake = false;
+  ball.passingTo = tm;
+  ball.spin = 0;
+  player.hasBall = false;
+  state = STATE.SHOT; // pause player movement during pass
+  sfx.release();
+}
+
+function updateTeammates(dt) {
+  passIndicatorPulse += dt * 4;
+  for (let i = 0; i < teammates.length; i++) {
+    const tm = teammates[i];
+
+    if (tm.hasBall) {
+      // Teammate holds ball, building shot
+      tm.holdT -= dt;
+      if (tm.holdT <= 0) {
+        // Shoot!
+        const open = isTeammateOpen(tm);
+        const makeChance = open ? 0.78 : 0.45;
+        const made = Math.random() < makeChance;
+
+        if (open) showToast(`OPEN LOOK! #${tm.num}`, 1.0);
+        else showToast(`#${tm.num} SHOOTS!`, 0.9);
+
+        // Animate ball flying from teammate to basket
+        const tdx = HOOP_X - tm.x, tdz = HOOP_Z - tm.z;
+        const tdist = Math.hypot(tdx, tdz);
+        const tFlight = 0.7 + tdist * 0.05;
+        let targetX = HOOP_X, targetZ = HOOP_Z, targetY = HOOP_Y + 0.05;
+        if (!made) {
+          targetX += (Math.random()-0.5)*0.8;
+          targetZ += (Math.random()-0.5)*0.8;
+          targetY -= 0.3;
+        }
+        ball.x = tm.x; ball.y = 1.6; ball.z = tm.z;
+        ball.vx = (targetX - tm.x) / tFlight;
+        ball.vz = (targetZ - tm.z) / tFlight;
+        const g = 9.8;
+        ball.vy = (targetY - 1.6) / tFlight + 0.5 * g * tFlight;
+        ball.flying = true;
+        ball.released = true;
+        ball.willMake = made;
+        ball.scored = false; ball.missed = false;
+        ball.passingTo = null;
+        ball.spin = 0;
+        ball._shotFromX = tm.x; ball._shotFromZ = tm.z;
+        ball.scoreType = Math.hypot(tm.x, tm.z) > 6.75 ? 3 : 2;
+
+        attempts++;
+        if (ball.scoreType === 3) threeAttempts++;
+
+        tm.hasBall = false;
+        state = STATE.SHOT;
+      }
+      continue; // don't move while holding
+    }
+
+    // Wander / drift toward home
+    tm.wanderT -= dt;
+    if (tm.wanderT <= 0) {
+      tm.wanderT = 1.5 + Math.random() * 1.5;
+      tm.vx += (Math.random()-0.5)*1.5;
+      tm.vz += (Math.random()-0.5)*1.5;
+    }
+
+    // Drift toward home
+    const toHomeX = tm.homeX - tm.x;
+    const toHomeZ = tm.homeZ - tm.z;
+    tm.vx += toHomeX * 0.5 * dt;
+    tm.vz += toHomeZ * 0.5 * dt;
+
+    // If player holding ball > 2s, cut toward basket
+    if (possessionT > 2 && i === 0) {
+      tm.vz += (8 - tm.z) * 1.5 * dt;
+      tm.vx += (0 - tm.x) * 0.5 * dt;
+    }
+
+    // Clamp velocity
+    const spd = Math.hypot(tm.vx, tm.vz);
+    const maxSpd = 3.5;
+    if (spd > maxSpd) { tm.vx = tm.vx/spd*maxSpd; tm.vz = tm.vz/spd*maxSpd; }
+
+    tm.x += tm.vx * dt;
+    tm.z += tm.vz * dt;
+
+    // Bounds
+    tm.x = Math.max(-13, Math.min(13, tm.x));
+    tm.z = Math.max(4, Math.min(28, tm.z));
+
+    // Damping
+    tm.vx *= 0.85;
+    tm.vz *= 0.85;
+
+    // Avoid overlapping teammates
+    for (let j = 0; j < teammates.length; j++) {
+      if (j === i) continue;
+      const other = teammates[j];
+      const sep = Math.hypot(tm.x - other.x, tm.z - other.z);
+      if (sep < 2.5 && sep > 0.01) {
+        const nx = (tm.x - other.x)/sep, nz = (tm.z - other.z)/sep;
+        tm.x += nx * (2.5 - sep) * 0.5;
+        tm.z += nz * (2.5 - sep) * 0.5;
+      }
+    }
+  }
+}
+
+function drawPassIndicator() {
+  if (!player.hasBall || state !== STATE.PLAY) return;
+  const tm = getBestPassTarget();
+  if (!tm) return;
+
+  // Dashed line from player to target teammate
+  const pA = project(player.x, 1.0, player.z);
+  const pB = project(tm.x, 1.0, tm.z);
+  if (pA.vis && pB.vis) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,100,0.45)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 8]);
+    ctx.beginPath();
+    ctx.moveTo(pA.sx, pA.sy);
+    ctx.lineTo(pB.sx, pB.sy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // Pulsing ring around target
+  const p = project(tm.x, 0.05, tm.z);
+  if (p.vis) {
+    ctx.save();
+    const pulse = 0.7 + Math.sin(passIndicatorPulse) * 0.3;
+    const r = p.scale * 0.45 * pulse;
+    ctx.strokeStyle = `rgba(255,255,80,${0.5 + Math.sin(passIndicatorPulse)*0.3})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(p.sx, p.sy, r, 0, Math.PI*2);
+    ctx.stroke();
+    // "E - PASS" label above ring
+    ctx.fillStyle = 'rgba(255,255,120,0.9)';
+    ctx.font = `bold ${Math.max(10, Math.floor(p.scale*0.15))}px Helvetica`;
+    ctx.textAlign = 'center';
+    ctx.fillText('E - PASS', p.sx, p.sy - r - 6);
+    ctx.restore();
+  }
+}
+
 function updateBall(dt) {
   if (!ball.flying) return;
   ball.vy -= 9.8 * dt;
@@ -1235,6 +1450,29 @@ function updateBall(dt) {
   ball.y += ball.vy * dt;
   ball.z += ball.vz * dt;
   ball.spin += dt * 8;
+
+  // Check if pass reached a teammate
+  if (ball.passingTo) {
+    const tm = ball.passingTo;
+    if (Math.hypot(ball.x - tm.x, ball.z - tm.z) < 1.2) {
+      // Caught!
+      ball.flying = false;
+      ball.passingTo = null;
+      tm.hasBall = true;
+      tm.holdT = 1.2 + Math.random() * 0.8;
+      state = STATE.SHOT; // keep movement paused until teammate shoots
+      possessionT = 0;
+      sfx.dribble();
+      return;
+    }
+    // Ball out of range (miss pass)
+    if (ball.y < 0.1 || Math.hypot(ball.x - tm.x, ball.z - tm.z) > 20) {
+      ball.flying = false;
+      ball.passingTo = null;
+      setTimeout(resetPossession, 500);
+      return;
+    }
+  }
 
   // Check if ball reached rim height going down near basket
   const distToRim = Math.hypot(ball.x - rimShakeX, ball.z);
@@ -1274,8 +1512,8 @@ function updateBall(dt) {
     setTimeout(resetPossession, ball.scored ? 800 : 500);
   }
 
-  // Too far away
-  if (ball.z > player.z + 2 || Math.abs(ball.x) > 15) {
+  // Too far away (skip check during passes)
+  if (!ball.passingTo && (ball.z > player.z + 2 || Math.abs(ball.x) > 15)) {
     ball.flying = false;
     if (!ball.scored && !ball.missed) { ball.missed = true; onMiss(); }
     setTimeout(resetPossession, 500);
@@ -1336,11 +1574,14 @@ function resetPossession() {
   ball.scored = false;
   ball.missed = false;
   ball.released = false;
+  ball.passingTo = null;
   player.hasBall = true;
   possessionT = 0;
   shotClock = 24;
   state = STATE.PLAY;
   hideToast();
+  // Reset teammates ball state
+  for (const tm of teammates) { tm.hasBall = false; }
   // Reset player slightly
   if (player.z < 16) player.z = 16;
 }
@@ -1533,6 +1774,9 @@ function restartGame() {
   player.hotStreak = 0;
   defender.x = 0; defender.z = 14;
   defender2.x = 4; defender2.z = 10; defender2.active = false;
+  teammates[0].x = 7; teammates[0].z = 14; teammates[0].hasBall = false; teammates[0].vx = 0; teammates[0].vz = 0;
+  teammates[1].x = -6; teammates[1].z = 12; teammates[1].hasBall = false; teammates[1].vx = 0; teammates[1].vz = 0;
+  ball.passingTo = null;
   defenderFrozen = 0; pumpFakeTimer = 0; missTextTimer = 0; missDir = '';
   ball.flying = false; ball.scored = false; ball.missed = false;
   charging = false; chargePower = 0;
@@ -1567,11 +1811,16 @@ function render() {
   drawHoop();
   if (player.hasBall && state === STATE.PLAY) drawShotIndicator();
   drawShotArc();
+  drawPassIndicator();
 
-  // Sort defender and ball by z
+  // Sort defender, teammates and ball by z
   const things = [];
   things.push({ z: defender.z, draw: drawDefender });
   if (defender2.active) things.push({ z: defender2.z, draw: () => drawDefenderAt(defender2, '#8a1a8a', '7') });
+  for (const tm of teammates) {
+    const tmRef = tm; // closure capture
+    things.push({ z: tm.z, draw: () => drawDefenderAt(tmRef, tmRef.color, tmRef.num) });
+  }
   things.push({ z: ball.flying ? ball.z : player.z - 0.6, draw: drawBall });
   things.sort((a,b) => b.z - a.z);
   for (const t of things) t.draw();
@@ -1608,6 +1857,7 @@ function loop(now) {
     dt *= slowMo;
     updatePlayer(dt);
     updateDefender(dt);
+    updateTeammates(dt);
     updateCharge(dt);
     updateBall(dt);
     updateOpponent(dt);
