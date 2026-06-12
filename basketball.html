@@ -225,7 +225,10 @@ window.addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'Space') {
     e.preventDefault();
-    if (state === STATE.PLAY && player.hasBall && !charging) startCharge();
+    if (state === STATE.PLAY && player.hasBall && !charging) {
+      spaceDownTime = performance.now();
+      startCharge();
+    }
   }
   if (e.code === 'KeyR') {
     if (state === STATE.GAMEOVER || state === STATE.PLAY) restartGame();
@@ -235,7 +238,14 @@ window.addEventListener('keyup', e => {
   keys[e.code] = false;
   if (e.code === 'Space') {
     e.preventDefault();
-    if (charging && state === STATE.PLAY) releaseShot();
+    if (charging && state === STATE.PLAY) {
+      const held = performance.now() - spaceDownTime;
+      if (held < 220) {
+        doPumpFake();
+      } else {
+        releaseShot();
+      }
+    }
   }
 });
 
@@ -287,6 +297,12 @@ let rimShake = 0, rimShakeX = 0;
 let netSway = 0;
 let flash3 = 0;
 let hiScore = parseInt(localStorage.getItem('hoopsHi') || '0');
+let pumpFakeTimer = 0;
+let defenderFrozen = 0;
+let spaceDownTime = 0;
+let missDir = '';
+let missTextTimer = 0;
+const defender2 = { x: 4, z: 10, active: false };
 
 // Crowd
 const crowd = [];
@@ -834,8 +850,8 @@ function drawBasketball(wx, wy, wz, rot) {
   ctx.restore();
 }
 
-function drawDefender() {
-  const d = defender;
+function drawDefender() { drawDefenderAt(defender, defender.color, '23'); }
+function drawDefenderAt(d, color, num) {
   // Body parts (legs, body, head, arms)
   const baseY = 0;
   const headY = 1.85;
@@ -875,7 +891,7 @@ function drawDefender() {
   const bBotL = project(d.x - 0.32, bodyBotY, d.z);
   const bBotR = project(d.x + 0.32, bodyBotY, d.z);
   if (bTopL.vis) {
-    ctx.fillStyle = d.color;
+    ctx.fillStyle = color;
     ctx.beginPath();
     ctx.moveTo(bTopL.sx, bTopL.sy);
     ctx.lineTo(bTopR.sx, bTopR.sy);
@@ -889,7 +905,7 @@ function drawDefender() {
     ctx.font = `bold ${Math.floor(mid.scale*0.18)}px Helvetica`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('23', mid.sx, mid.sy);
+    ctx.fillText(num, mid.sx, mid.sy);
   }
 
   // Arms — go up when reaching
@@ -1006,6 +1022,33 @@ function drawHUD() {
   }
   ctx.restore();
 
+  // Position label (bottom center)
+  if (player.hasBall && state === STATE.PLAY) {
+    const pos = getPositionLabel();
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 16px Helvetica';
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(W/2 - 90, H - 54, 180, 40);
+    ctx.fillStyle = pos.col;
+    ctx.fillText(pos.label, W/2, H - 30);
+    ctx.font = 'bold 12px Helvetica';
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillText(`${pos.pts} POINTS`, W/2, H - 16);
+    ctx.restore();
+  }
+
+  // Miss direction feedback
+  if (missTextTimer > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, missTextTimer * 2);
+    ctx.font = `bold ${Math.floor(28 + (1.2-missTextTimer)*10)}px Helvetica`;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ff6040';
+    ctx.fillText(missDir, W/2, H * 0.72);
+    ctx.restore();
+  }
+
   // Possession timer warning
   if (possessionT > 2.5 && player.hasBall) {
     ctx.save();
@@ -1084,6 +1127,30 @@ function hideToast() {
 }
 
 // ===== Game logic =====
+function getPositionLabel() {
+  const dist = Math.hypot(player.x, player.z);
+  const isThree = dist > 6.75;
+  const isLayup = dist < 3.5;
+  if (isLayup) return { label: 'LAYUP', pts: 2, col: '#44ff88' };
+  if (!isThree) {
+    if (player.z < 7) return { label: 'POST UP', pts: 2, col: '#ffb84a' };
+    return { label: 'MID-RANGE', pts: 2, col: '#ffb84a' };
+  }
+  if (Math.abs(player.x) > 5.5) return { label: 'CORNER 3', pts: 3, col: '#3a9fff' };
+  if (Math.abs(player.x) > 3.0) return { label: 'WING 3', pts: 3, col: '#3a9fff' };
+  return { label: 'TOP OF KEY', pts: 3, col: '#3a9fff' };
+}
+
+function doPumpFake() {
+  charging = false;
+  chargePower = 0;
+  pumpFakeTimer = 0.6;
+  defenderFrozen = 1.5;
+  sfx.release();
+  showToast('PUMP FAKE!', 0.7);
+  spark(W/2, H*0.6, '#ffb84a', 8);
+}
+
 function startCharge() {
   if (ball.flying || possessionT < 0.1) return;
   // Wait for next dribble bounce — just start immediately for snappiness
@@ -1110,18 +1177,23 @@ function releaseShot() {
   ball.scoreType = playerTo3 > 6.75 ? 3 : 2;
 
   // Decide make probability
-  let makeChance = 0.85;
-  if (!inSweet) {
+  const isLayup = dist < 3.5;
+  let makeChance = isLayup ? 0.93 : 0.85;
+  if (!inSweet && !isLayup) {
     const offBy = Math.min(Math.abs(power - (SWEET_LOW+SWEET_HIGH)/2), 0.5);
     makeChance -= offBy * 1.6;
   }
   // Distance penalty
-  makeChance -= Math.max(0, dist - 5) * 0.04;
+  if (!isLayup) makeChance -= Math.max(0, dist - 5) * 0.04;
   // Contested
-  if (contested) makeChance -= 0.35;
+  if (contested) makeChance -= isLayup ? 0.15 : 0.35;
+  // Defender frozen bonus
+  if (defenderFrozen > 0) makeChance += 0.2;
   // Hot streak bonus
   if (player.hotStreak >= 3) makeChance += 0.08;
   makeChance = Math.max(0.05, Math.min(0.98, makeChance));
+  // Store shot origin for miss direction
+  ball._shotFromX = player.x; ball._shotFromZ = player.z;
 
   ball.willMake = Math.random() < makeChance;
 
@@ -1221,12 +1293,16 @@ function onMake() {
   sfx.cheer();
   netSway = 1;
   crowdHype = 1;
+  const isLayup = Math.hypot(ball._shotFromX||player.x, ball._shotFromZ||player.z) < 3.5;
   if (pts === 3) {
-    showToast('3 POINTS!');
+    showToast('3 POINTS! 🔥');
     flash3 = 0.6;
     spark(W/2, H/2, '#3aff70', 30);
+  } else if (isLayup) {
+    showToast('AND ONE!');
+    spark(W/2, H/2, '#44ff88', 18);
   } else if (ball.perfect) {
-    showToast('SWISH!');
+    showToast('SWISH! 💦');
     spark(W/2, H/2, '#3aff70', 20);
   } else {
     showToast('BUCKET!');
@@ -1239,8 +1315,20 @@ function onMake() {
 
 function onMiss() {
   player.hotStreak = 0;
-  showToast('MISS', 0.8);
   rimShake = 0.3;
+  // Directional miss feedback
+  const dx = ball.x - HOOP_X, dz = ball.z - HOOP_Z;
+  const dist = Math.hypot(dx, dz);
+  if (ball.y < HOOP_Y - 0.5) {
+    missDir = 'SHORT!';
+  } else if (dist > HOOP_R * 1.5) {
+    if (Math.abs(dx) > Math.abs(dz)) missDir = dx > 0 ? 'RIGHT!' : 'LEFT!';
+    else missDir = dz > 0 ? 'LONG!' : 'SHORT!';
+  } else {
+    missDir = 'RIM!';
+  }
+  missTextTimer = 1.2;
+  showToast('MISS', 0.7);
 }
 
 function resetPossession() {
@@ -1293,6 +1381,9 @@ function updatePlayer(dt) {
 }
 
 function updateDefender(dt) {
+  if (defenderFrozen > 0) { defenderFrozen -= dt; }
+  if (pumpFakeTimer > 0) pumpFakeTimer -= dt;
+  if (missTextTimer > 0) missTextTimer -= dt;
   const d = defender;
   // Target: stay between player and basket
   const tBlend = 0.6;
@@ -1301,10 +1392,23 @@ function updateDefender(dt) {
   let dx = tx - d.x, dz = tz - d.z;
   const m = Math.hypot(dx, dz);
   if (m > 0.05) { dx /= m; dz /= m; }
-  // Speed scales with quarter
-  const speedMul = 1 + (quarter - 1) * 0.15;
+  // Speed scales with quarter, but frozen after pump fake
+  const frozenMul = defenderFrozen > 0 ? 0.1 : 1;
+  const speedMul = (1 + (quarter - 1) * 0.15) * frozenMul;
   d.x += dx * d.speed * speedMul * dt;
   d.z += dz * d.speed * speedMul * dt;
+
+  // Second defender active from Q3+
+  defender2.active = quarter >= 3;
+  if (defender2.active) {
+    const tx2 = player.x * 0.4 + 3;
+    const tz2 = player.z * 0.5 + 8;
+    let dx2 = tx2 - defender2.x, dz2 = tz2 - defender2.z;
+    const m2 = Math.hypot(dx2, dz2);
+    if (m2 > 0.05) { dx2 /= m2; dz2 /= m2; }
+    defender2.x += dx2 * 4 * (1 + (quarter-3)*0.2) * frozenMul * dt;
+    defender2.z += dz2 * 4 * (1 + (quarter-3)*0.2) * frozenMul * dt;
+  }
 
   // Reach (steal attempt) after holding
   if (possessionT > 3 && player.hasBall && !d.isReaching) {
@@ -1428,6 +1532,8 @@ function restartGame() {
   player.hasBall = true;
   player.hotStreak = 0;
   defender.x = 0; defender.z = 14;
+  defender2.x = 4; defender2.z = 10; defender2.active = false;
+  defenderFrozen = 0; pumpFakeTimer = 0; missTextTimer = 0; missDir = '';
   ball.flying = false; ball.scored = false; ball.missed = false;
   charging = false; chargePower = 0;
   document.getElementById('menu').classList.add('hidden');
@@ -1465,8 +1571,9 @@ function render() {
   // Sort defender and ball by z
   const things = [];
   things.push({ z: defender.z, draw: drawDefender });
+  if (defender2.active) things.push({ z: defender2.z, draw: () => drawDefenderAt(defender2, '#8a1a8a', '7') });
   things.push({ z: ball.flying ? ball.z : player.z - 0.6, draw: drawBall });
-  things.sort((a,b) => b.z - a.z); // farther first
+  things.sort((a,b) => b.z - a.z);
   for (const t of things) t.draw();
 
   // Vignette
