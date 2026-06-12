@@ -89,90 +89,111 @@ function stopMusic(){ clearTimeout(musicTimer); musicTimer=null; }
 //        'orb'=yellow orb, 'ship'=ship portal, 'cube'=cube portal, 'ball'=ball portal, 'end'=end flag
 function makeLvl(){
   const o=[];
-  // Helper: add obstacle at tile coords
-  const b =(tx,ty=0)=>o.push({t:'b',  x:tx*T, y:GX-ty*T-T,   w:T,h:T});
-  const b2=(tx,ty=0)=>o.push({t:'b',  x:tx*T, y:GX-ty*T-T*2, w:T,h:T*2});
-  const s =(tx)    =>o.push({t:'s',  x:tx*T, y:GX-T});
-  const ss=(tx)    =>{s(tx);s(tx+1)};
-  const sss=(tx)   =>{s(tx);s(tx+1);s(tx+2)};
-  const pl=(tx,ty) =>o.push({t:'p',  x:tx*T, y:GX-ty*T,     w:T*3,h:8});
-  const orb=(tx,ty=3)=>o.push({t:'orb', x:tx*T+T/2, y:GX-ty*T});
-  const portal=(tx,mode)=>o.push({t:'portal',x:tx*T,mode});
-  const end=(tx)   =>o.push({t:'end', x:tx*T});
+  const b  =(tx,ty=0)=>o.push({t:'b', x:tx*T, y:GX-(ty+1)*T, w:T, h:T});
+  const b2 =(tx)     =>o.push({t:'b', x:tx*T, y:GX-T*2,      w:T, h:T*2});
+  const s  =(tx)     =>o.push({t:'s', x:tx*T, y:GX-T});
+  const ss =(tx)     =>{s(tx);s(tx+1);};
+  const pl =(tx,ty,w)=>o.push({t:'p', x:tx*T, y:GX-ty*T,     w:(w||3)*T, h:8});
+  const orb=(tx,ty)  =>o.push({t:'orb', x:tx*T+T/2, y:GX-ty*T});
+  const portal=(tx,mode)=>o.push({t:'portal', x:tx*T, mode});
+  const end=(tx)     =>o.push({t:'end', x:tx*T});
 
-  // ── SECTION 1: Tutorial (very easy) ────────────────────────
-  s(12);
-  s(16);
-  b(20); s(21);
-  ss(26);
-  b(30); b(31);
+  // ── SECTION 1: Very easy intro ─────────────────────────────
+  // Single spikes with huge gaps — just learn the jump timing
+  s(10);
+  s(15);
+  s(20);
+  b(25);          // single block to jump onto
+  s(28);
   s(33);
-  b(36,1); // block on top of ground = 2 tiles high
-  s(38);
-  ss(42);
-  b(46); s(47);
-  sss(51);
+  ss(38);         // first double spike (wide gap before it)
+  b(44);
+  s(47);
+  s(52);
+  ss(57);
+  b(62);
+  s(65);
 
-  // ── SECTION 2: Moderate (orbs intro) ───────────────────────
-  b(60); b(61); s(62);
-  orb(67,4);
-  ss(70);
-  b(74,1); s(76);
-  orb(80,3);
-  b(83); ss(85);
-  orb(90,4);
-  b(93); b(94); s(95);
-  ss(99);
+  // ── SECTION 2: Moderate — blocks + orbs ────────────────────
+  b(74);
+  s(77);
+  b2(82);         // tall block — jump over it
+  s(85);
+  s(90);
+  orb(95,4);      // first orb: jump onto it mid-air
+  s(98);
+  b(103);
+  s(106);
+  ss(111);
+  orb(117,4);
+  b(120);
+  s(123);
+  ss(128);
+  b(133);
+  s(136);
 
-  // ── SECTION 3: Ship portal ──────────────────────────────────
-  portal(108,'ship');
-  // ship obstacles (ceiling/floor blocks)
-  for(let i=1;i<=4;i++) o.push({t:'ceil',x:(112+i*4)*T,y:GX-(H-GX)/2-50,w:T,h:80});
-  for(let i=1;i<=3;i++) o.push({t:'ceil',x:(114+i*4)*T,y:GX-100,        w:T,h:100});
+  // ── SECTION 3: Ship portal (easy gaps) ─────────────────────
+  portal(144,'ship');
+  // Wide gaps between obstacles so ship is easy
+  o.push({t:'ceil',x:150*T, y:0,          w:T, h:120});
+  o.push({t:'ceil',x:155*T, y:GX-120,     w:T, h:120});
+  o.push({t:'ceil',x:161*T, y:0,          w:T, h:100});
+  o.push({t:'ceil',x:166*T, y:GX-110,     w:T, h:110});
+  o.push({t:'ceil',x:172*T, y:0,          w:T, h:130});
+  o.push({t:'ceil',x:177*T, y:GX-130,     w:T, h:130});
 
-  // ── SECTION 4: Back to cube, harder ────────────────────────
-  portal(138,'cube');
-  ss(142);
-  b(146,1); s(148);
-  sss(152);
-  orb(157,4); ss(160);
-  b(164); b(165); ss(167);
-  orb(172,4);
-  sss(175);
-  b(180,1); b(181,1); s(183);
-  orb(188,3);
-  ss(192); s(195);
+  // ── SECTION 4: Cube again, medium ──────────────────────────
+  portal(184,'cube');
+  s(188);
+  ss(193);
+  b(198);
+  s(201);
+  orb(206,4);
+  ss(210);
+  b(215);
+  s(218);
+  ss(223);
+  b2(228);
+  s(231);
+  orb(236,4);
+  ss(240);
+  s(244);
+  b(249);
+  ss(253);
 
-  // ── SECTION 5: Ball mode ───────────────────────────────────
-  portal(200,'ball');
-  s(204); s(208);
-  o.push({t:'ceil2',x:212*T,y:GX-T*5,w:T,h:T}); s(213);
-  s(218); o.push({t:'ceil2',x:220*T,y:GX-T*5,w:T,h:T});
-  s(224); s(228);
-  o.push({t:'ceil2',x:232*T,y:GX-T*4,w:T,h:T}); s(233); s(234);
+  // ── SECTION 5: Ball mode (easy — just floor spikes) ────────
+  portal(260,'ball');
+  s(265);
+  s(271);
+  s(277);
+  s(283);         // ball = flip gravity to dodge floor spikes
+  s(289);
+  s(295);
+  s(301);
 
-  // ── SECTION 6: Final cube — hardest ────────────────────────
-  portal(240,'cube');
-  sss(244);
-  b(248,1); ss(250);
-  sss(254); s(258);
-  b(262,1); b(263,1); ss(265);
-  orb(270,4);
-  sss(273); ss(277);
-  b(282,1); sss(284);
-  orb(290,4);
-  ss(293); sss(296);
-  b(302,1); b(303,1); ss(305);
-  sss(310); s(314);
-  orb(318,4);
-  sss(321); ss(325); sss(328);
+  // ── SECTION 6: Final cube (challenging but fair) ───────────
+  portal(308,'cube');
+  ss(313);
+  b(318); s(321);
+  ss(326);
+  orb(332,4);
+  b(336); s(339);
+  ss(344);
+  b2(349); s(352);
+  orb(357,4);
+  ss(362);
+  b(367); ss(370);
+  orb(376,4);
+  ss(380); s(384);
+  b2(389); ss(392);
+  s(397);
 
-  end(336);
+  end(404);
   return o;
 }
 
 const LEVEL = makeLvl();
-const LVL_W = 340*T;
+const LVL_W = 410*T;
 
 // ── Player ─────────────────────────────────────────────────────
 const P={
@@ -412,16 +433,17 @@ function update(dt){
 
     if(o.t==='b'){
       if(hits(o.x,o.y,o.w,o.h)){
-        // land on top?
-        const prevY=P.y-P.vy*dt;
-        if(prevY+T-6<=o.y+8&&P.vy>0&&P.grav===1){
+        // Land on top if falling and player top is above block top
+        if(P.vy>=0 && P.y<=o.y+4){
           P.y=o.y-T; P.vy=0; P.onGround=true; snapRot();
         } else { die(); return; }
       }
     }
 
     if(o.t==='p'){// platform (land on top only)
-      if(P.x+T-6>o.x&&P.x+6<o.x+o.w&&P.y+T>o.y&&P.y+T<o.y+o.h+10&&P.vy>0){
+      const shrink=4;
+      if(P.x+T-shrink>o.x && P.x+shrink<o.x+o.w &&
+         P.y+T>=o.y && P.y+T<=o.y+16 && P.vy>=0){
         P.y=o.y-T; P.vy=0; P.onGround=true; snapRot();
       }
     }
